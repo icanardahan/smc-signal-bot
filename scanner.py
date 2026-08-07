@@ -13,7 +13,10 @@ import time
 import urllib.request
 import urllib.error
 
-BINANCE_BASE = "https://api.binance.com"
+# api.binance.com bazı bölgelerden (ör. GitHub Actions ABD sunucuları) 451 ile
+# engelleniyor; data-api.binance.vision aynı public market-data uçlarını
+# coğrafi kısıtlama olmadan sunuyor.
+BINANCE_BASE = "https://data-api.binance.vision"
 STATE_FILE = os.path.join(os.path.dirname(__file__), "state.json")
 
 # ---------------- Ayarlar (Pine script'teki inputlarla aynı) ----------------
