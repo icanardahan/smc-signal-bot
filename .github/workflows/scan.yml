@@ -32,7 +32,11 @@ jobs:
           if ! git diff --quiet -- state.json; then
             git add state.json
             git commit -m "state güncelle"
-            git push
+            for i in 1 2 3 4 5; do
+              git pull --rebase --autostash origin main && git push && break
+              echo "Push başarısız, tekrar deneniyor ($i)..."
+              sleep 5
+            done
           else
             echo "state.json değişmedi, commit atlanıyor."
           fi

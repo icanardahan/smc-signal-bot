@@ -68,6 +68,8 @@ def get_usdt_symbols():
         if not s.get("isSpotTradingAllowed", True):
             continue
         sym = s["symbol"]
+        if not sym.isascii():
+            continue  # bazı egzotik/meme sembolleri URL kodlamasında sorun çıkarıyor
         if sym.endswith(EXCLUDE_SUFFIXES):
             continue
         if s["baseAsset"] in EXCLUDE_BASE_STABLES:
@@ -335,6 +337,7 @@ def main():
             last_alerted = sym_state.get(direction_key)
             if last_alerted == sig["bos_close_time"]:
                 continue  # bu BOS için zaten alarm gönderildi
+            print(f"[{symbol}] {sig['direction']} sinyali gönderiliyor (BOS: {sig['bos_close_time']})")
             send_telegram(format_message(symbol, sig))
             sym_state[direction_key] = sig["bos_close_time"]
             sent += 1
