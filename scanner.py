@@ -12,6 +12,7 @@ import os
 import time
 import urllib.request
 import urllib.error
+from datetime import datetime, timezone
 
 # api.binance.com bazı bölgelerden (ör. GitHub Actions ABD sunucuları) 451 ile
 # engelleniyor; data-api.binance.vision aynı public market-data uçlarını
@@ -286,6 +287,17 @@ def format_message(symbol, sig):
     direction = sig["direction"]
     emoji = "🟢" if direction == "LONG" else "🔴"
     rr_text = f"{sig['rr']:.2f}" if sig["rr"] else "n/a"
+
+    bos_dt = datetime.fromtimestamp(sig["bos_close_time"] / 1000, tz=timezone.utc)
+    now_dt = datetime.now(timezone.utc)
+    age_hours = (now_dt - bos_dt).total_seconds() / 3600
+    bos_time_text = bos_dt.strftime("%Y-%m-%d %H:%M UTC")
+
+    if age_hours < 0.5:
+        freshness = "az önce oluştu"
+    else:
+        freshness = f"~{age_hours:.1f} saat önce oluştu"
+
     return (
         f"{emoji} <b>{direction}</b> — {symbol}\n"
         f"HTF Bölge (1D): {sig['zone_bot']:.6g} - {sig['zone_top']:.6g}\n"
@@ -293,6 +305,7 @@ def format_message(symbol, sig):
         f"SL: {sig['sl']:.6g}\n"
         f"TP: {sig['tp']:.6g}\n"
         f"R:R ≈ {rr_text}\n"
+        f"Onay mumu (4H kapanış): {bos_time_text} ({freshness})\n"
         f"Zaman dilimi: 1D → 4H onay"
     )
 
