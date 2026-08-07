@@ -1,0 +1,38 @@
+name: SMC Sinyal Taraması
+
+on:
+  schedule:
+    # Her 4 saatlik mumun kapanışından ~5 dakika sonra çalışır (UTC)
+    - cron: "5 0,4,8,12,16,20 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Taramayı çalıştır
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python scanner.py
+
+      - name: Durumu (state.json) kaydet
+        run: |
+          git config user.name "smc-signal-bot"
+          git config user.email "actions@users.noreply.github.com"
+          if ! git diff --quiet -- state.json; then
+            git add state.json
+            git commit -m "state güncelle"
+            git push
+          else
+            echo "state.json değişmedi, commit atlanıyor."
+          fi
