@@ -51,13 +51,31 @@ tetikleyebilirsin.
 
 ## Parametreler
 `scanner.py` başındaki sabitlerden ayarlanabilir: `CONFIRM_WINDOW`,
-`PIVOT_LEN_HTF`, `PIVOT_LEN_LTF`, `LIQUIDITY_LOOKBACK`, `SL_ATR_MULT`.
+`PIVOT_LEN_HTF`, `PIVOT_LEN_LTF`, `LIQUIDITY_LOOKBACK`, `SL_ATR_MULT`,
+`LEVERAGE_MARGIN_RISK`, `LEVERAGE_CAP`, `ACCOUNT_RISK_PER_TRADE`,
+`MAX_POSITION_PCT`.
+
+## Kaldıraç ve pozisyon büyüklüğü önerisi
+Her sinyalde iki ek hesaplama daha gönderilir:
+- **Kaldıraç**: SL'e değildiğinde marjinin ~%30'u kaybedilecek şekilde
+  (likidasyona tampon payı bırakarak) hesaplanır, `LEVERAGE_CAP` (varsayılan
+  20x) ile sınırlanır.
+- **Pozisyon büyüklüğü**: SL'e değildiğinde toplam cüzdanın ~%1'i
+  (`ACCOUNT_RISK_PER_TRADE`) kaybedilecek şekilde, kullanılacak marjinin
+  cüzdana oranı olarak hesaplanır, `MAX_POSITION_PCT` (varsayılan %20) ile
+  sınırlanır.
+
+Bu ikisi de kişiselleştirilmiş yatırım tavsiyesi değildir — sabit risk
+varsayımlarına dayanan mekanik hesaplamalardır, kendi risk toleransına göre
+sabitleri değiştirebilirsin.
 
 ## Sınırlamalar
 - OB/FVG/BOS tespiti basitleştirilmiş bir yaklaşımdır, TradingView'daki Pine
   Script ile birebir aynı mantığı kullanır ama farklı piyasa koşullarında
   yanlış sinyal üretebilir.
-- TP hesaplaması gerçek likidite havuzu analizi değil, son N bardaki en
-  yüksek/düşük fiyat.
+- TP1/TP2/TP3 hesaplaması geçmiş pivot tepe/diplerine (likidite seviyelerine)
+  dayanır, gelecekteki fiyat hareketini garanti etmez.
+- Kaldıraç/pozisyon önerileri sabit varsayımlara dayanır, kendi sermayeni ve
+  risk toleransını mutlaka göz önünde bulundur.
 - Bu bir yatırım tavsiyesi değildir; gerçek parayla kullanmadan önce sinyalleri
   gözle/backtest ile doğrula.

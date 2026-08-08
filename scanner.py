@@ -26,6 +26,11 @@ PIVOT_LEN_LTF = 3
 CONFIRM_WINDOW = 15       # 4H bar cinsinden
 LIQUIDITY_LOOKBACK = 100  # TP için geriye bakılacak 4H bar sayısı
 SL_ATR_MULT = 0.15
+LEVERAGE_MARGIN_RISK = 0.30  # SL'e değince marjin'in ~%30'u kaybedilecek şekilde kaldıraç öner
+LEVERAGE_CAP = 20            # ne kadar dar SL olursa olsun bu değeri aşma
+LEVERAGE_STEPS = [1, 2, 3, 5, 10, 15, 20, 25, 30, 40, 50, 75, 100]
+ACCOUNT_RISK_PER_TRADE = 0.01  # SL'e değince toplam cüzdanın ~%1'i kaybedilsin (standart risk yönetimi varsayımı)
+MAX_POSITION_PCT = 0.20        # marjin, cüzdanın bu oranını tek işlemde aşmasın
 HTF_INTERVAL = "1d"
 LTF_INTERVAL = "4h"
 HTF_LIMIT = 400
@@ -219,6 +224,31 @@ def pick_tp_levels(entry, ltf_levels, htf_levels, direction, count=3, min_gap_pc
     return picked
 
 
+def suggest_leverage(entry, sl):
+    """SL mesafesine göre kaldıraç önerir: SL'e değince marjinin ~%LEVERAGE_MARGIN_RISK'i
+    kaybedilecek şekilde, likidasyona tampon payı bırakan mekanik bir hesaplama.
+    Kişiselleştirilmiş yatırım tavsiyesi değildir."""
+    sl_pct = abs(entry - sl) / entry
+    if sl_pct <= 0:
+        return None
+    raw = LEVERAGE_MARGIN_RISK / sl_pct
+    capped = min(LEVERAGE_CAP, raw)
+    eligible = [s for s in LEVERAGE_STEPS if s <= capped]
+    return max(eligible) if eligible else 1
+
+
+def suggest_position_pct(entry, sl, leverage):
+    """SL'e değince cüzdanın ~ACCOUNT_RISK_PER_TRADE'i kaybedilecek şekilde,
+    kullanılacak marjinin cüzdana oranını (%) hesaplar. Kişiselleştirilmiş
+    yatırım tavsiyesi değildir, sabit bir risk-yüzdesi varsayımına dayanır."""
+    sl_pct = abs(entry - sl) / entry
+    if sl_pct <= 0 or not leverage:
+        return None
+    notional_pct = ACCOUNT_RISK_PER_TRADE / sl_pct
+    margin_pct = notional_pct / leverage
+    return min(margin_pct, MAX_POSITION_PCT)
+
+
 def evaluate_symbol(symbol):
     htf_candles = fetch_klines(symbol, HTF_INTERVAL, HTF_LIMIT)
     time.sleep(REQUEST_SLEEP)
@@ -261,6 +291,7 @@ def evaluate_symbol(symbol):
         sl = (ltf_ob["ob_bot"] if ltf_ob["ob_dir"] == 1 and ltf_ob["ob_bot"] is not None else low) - atr * SL_ATR_MULT
         tp1, tp2, tp3 = pick_tp_levels(close, ltf_highs, htf_highs, "long")
         rrs = [(tp - close) / (close - sl) if (tp is not None and close > sl) else None for tp in (tp1, tp2, tp3)]
+        leverage = suggest_leverage(close, sl)
         long_signal = {
             "direction": "LONG",
             "bos_close_time": ltf_ob["close_time"],
@@ -268,6 +299,8 @@ def evaluate_symbol(symbol):
             "sl": sl,
             "tp1": tp1, "tp2": tp2, "tp3": tp3,
             "rr1": rrs[0], "rr2": rrs[1], "rr3": rrs[2],
+            "leverage": leverage,
+            "position_pct": suggest_position_pct(close, sl, leverage),
             "zone_top": zone_top,
             "zone_bot": zone_bot,
         }
@@ -277,6 +310,7 @@ def evaluate_symbol(symbol):
         sl = (ltf_ob["ob_top"] if ltf_ob["ob_dir"] == -1 and ltf_ob["ob_top"] is not None else high) + atr * SL_ATR_MULT
         tp1, tp2, tp3 = pick_tp_levels(close, ltf_lows, htf_lows, "short")
         rrs = [(close - tp) / (sl - close) if (tp is not None and sl > close) else None for tp in (tp1, tp2, tp3)]
+        leverage = suggest_leverage(close, sl)
         short_signal = {
             "direction": "SHORT",
             "bos_close_time": ltf_ob["close_time"],
@@ -284,6 +318,8 @@ def evaluate_symbol(symbol):
             "sl": sl,
             "tp1": tp1, "tp2": tp2, "tp3": tp3,
             "rr1": rrs[0], "rr2": rrs[1], "rr3": rrs[2],
+            "leverage": leverage,
+            "position_pct": suggest_position_pct(close, sl, leverage),
             "zone_top": zone_top,
             "zone_bot": zone_bot,
         }
@@ -341,6 +377,11 @@ def format_message(symbol, sig):
     else:
         freshness = f"~{age_hours:.1f} saat önce oluştu"
 
+    lev = sig.get("leverage")
+    lev_text = f"~{lev}x" if lev else "n/a"
+    pos_pct = sig.get("position_pct")
+    pos_text = f"~%{pos_pct*100:.1f}" if pos_pct else "n/a"
+
     return (
         f"{emoji} <b>{direction}</b> — {symbol}\n"
         f"HTF Bölge (1D): {sig['zone_bot']:.6g} - {sig['zone_top']:.6g}\n"
@@ -349,6 +390,9 @@ def format_message(symbol, sig):
         f"TP1: {_fmt_tp(sig['tp1'], sig['rr1'])}\n"
         f"TP2: {_fmt_tp(sig['tp2'], sig['rr2'])}\n"
         f"TP3: {_fmt_tp(sig['tp3'], sig['rr3'])}\n"
+        f"Önerilen kaldıraç: {lev_text} (SL mesafesine göre, marjinin ~%{LEVERAGE_MARGIN_RISK*100:.0f}'i risk hedefiyle hesaplandı)\n"
+        f"Önerilen pozisyon büyüklüğü: cüzdanının {pos_text}'i (marjin olarak; SL'e değince cüzdanın ~%{ACCOUNT_RISK_PER_TRADE*100:.0f}'i kaybedilecek şekilde hesaplandı)\n"
+        f"⚠️ Bunlar yatırım tavsiyesi değildir, sabit risk varsayımlarına dayanan mekanik hesaplamalardır — kendi risk toleransına göre ayarla\n"
         f"Onay mumu (4H kapanış): {bos_time_text} ({freshness})\n"
         f"Zaman dilimi: 1D → 4H onay"
     )
