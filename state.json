@@ -8,11 +8,17 @@
   "METUSDT": {
     "long": 1785945599999
   },
+  "QUICKUSDT": {
+    "long": 1786175999999
+  },
   "SFPUSDT": {
     "short": 1785931199999
   },
   "TURBOUSDT": {
     "short": 1786147199999
+  },
+  "XUSDUSDT": {
+    "short": 1786175999999
   },
   "ZKPUSDT": {
     "long": 1786031999999
