@@ -52,22 +52,25 @@ tetikleyebilirsin.
 ## Parametreler
 `scanner.py` başındaki sabitlerden ayarlanabilir: `CONFIRM_WINDOW`,
 `PIVOT_LEN_HTF`, `PIVOT_LEN_LTF`, `LIQUIDITY_LOOKBACK`, `SL_ATR_MULT`,
-`LEVERAGE_MARGIN_RISK`, `LEVERAGE_CAP`, `ACCOUNT_RISK_PER_TRADE`,
-`MAX_POSITION_PCT`.
+`LEVERAGE_CAP`, `MAX_POSITION_PCT`, `RR_SCALE_MIN`, `RR_SCALE_MAX`,
+`MARGIN_RISK_MIN/MAX`, `ACCOUNT_RISK_MIN/MAX`.
 
-## Kaldıraç ve pozisyon büyüklüğü önerisi
-Her sinyalde iki ek hesaplama daha gönderilir:
-- **Kaldıraç**: SL'e değildiğinde marjinin ~%30'u kaybedilecek şekilde
-  (likidasyona tampon payı bırakarak) hesaplanır, `LEVERAGE_CAP` (varsayılan
-  20x) ile sınırlanır.
-- **Pozisyon büyüklüğü**: SL'e değildiğinde toplam cüzdanın ~%1'i
-  (`ACCOUNT_RISK_PER_TRADE`) kaybedilecek şekilde, kullanılacak marjinin
-  cüzdana oranı olarak hesaplanır, `MAX_POSITION_PCT` (varsayılan %20) ile
-  sınırlanır.
+## Kaldıraç ve pozisyon büyüklüğü önerisi (dinamik)
+Kaldıraç ve pozisyon büyüklüğü sabit değil, her işlemin **TP1 R:R kalitesine**
+göre ölçeklenir — R:R ne kadar iyiyse (asimetrik, güçlü setup) o kadar fazla
+risk bütçesi/kaldıraç, R:R zayıfsa o kadar az:
 
-Bu ikisi de kişiselleştirilmiş yatırım tavsiyesi değildir — sabit risk
-varsayımlarına dayanan mekanik hesaplamalardır, kendi risk toleransına göre
-sabitleri değiştirebilirsin.
+- R:R ≤ `RR_SCALE_MIN` (1.0) → minimum risk bütçesi (marjinin %15'i / cüzdanın %0.5'i)
+- R:R ≥ `RR_SCALE_MAX` (4.0) → maksimum risk bütçesi (marjinin %35'i / cüzdanın %2'si)
+- Arada doğrusal olarak ölçeklenir; TP1 bulunamazsa en muhafazakar (minimum) değer kullanılır.
+
+Kaldıraç bu ölçeklenmiş marjin-riski ile SL mesafesinden, pozisyon büyüklüğü
+ölçeklenmiş cüzdan-riski ile SL mesafesi ve kaldıraçtan hesaplanır. `LEVERAGE_CAP`
+(20x) ve `MAX_POSITION_PCT` (%20) her durumda üst sınırdır.
+
+Bu kişiselleştirilmiş yatırım tavsiyesi değildir — işlemin R:R'ına göre
+ölçeklenen mekanik bir hesaplamadır, kendi risk toleransına göre `scanner.py`
+başındaki aralık sabitlerini değiştirebilirsin.
 
 ## Sınırlamalar
 - OB/FVG/BOS tespiti basitleştirilmiş bir yaklaşımdır, TradingView'daki Pine
@@ -75,7 +78,7 @@ sabitleri değiştirebilirsin.
   yanlış sinyal üretebilir.
 - TP1/TP2/TP3 hesaplaması geçmiş pivot tepe/diplerine (likidite seviyelerine)
   dayanır, gelecekteki fiyat hareketini garanti etmez.
-- Kaldıraç/pozisyon önerileri sabit varsayımlara dayanır, kendi sermayeni ve
-  risk toleransını mutlaka göz önünde bulundur.
+- Kaldıraç/pozisyon önerileri R:R'a göre ölçeklenir ama yine de varsayımlara
+  dayanır; kendi sermayeni ve risk toleransını mutlaka göz önünde bulundur.
 - Bu bir yatırım tavsiyesi değildir; gerçek parayla kullanmadan önce sinyalleri
   gözle/backtest ile doğrula.

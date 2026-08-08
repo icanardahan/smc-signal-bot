@@ -26,11 +26,37 @@ PIVOT_LEN_LTF = 3
 CONFIRM_WINDOW = 15       # 4H bar cinsinden
 LIQUIDITY_LOOKBACK = 100  # TP için geriye bakılacak 4H bar sayısı
 SL_ATR_MULT = 0.15
-LEVERAGE_MARGIN_RISK = 0.30  # SL'e değince marjin'in ~%30'u kaybedilecek şekilde kaldıraç öner
 LEVERAGE_CAP = 20            # ne kadar dar SL olursa olsun bu değeri aşma
 LEVERAGE_STEPS = [1, 2, 3, 5, 10, 15, 20, 25, 30, 40, 50, 75, 100]
-ACCOUNT_RISK_PER_TRADE = 0.01  # SL'e değince toplam cüzdanın ~%1'i kaybedilsin (standart risk yönetimi varsayımı)
 MAX_POSITION_PCT = 0.20        # marjin, cüzdanın bu oranını tek işlemde aşmasın
+
+# Kaldıraç ve pozisyon büyüklüğü artık sabit değil; işlemin TP1 R:R'ına göre
+# (setup kalitesine göre) bu aralıklar içinde dinamik olarak ölçeklenir.
+RR_SCALE_MIN = 1.0   # bu R:R veya altı -> minimum risk bütçesi kullanılır
+RR_SCALE_MAX = 4.0   # bu R:R veya üstü -> maksimum risk bütçesi kullanılır
+MARGIN_RISK_MIN = 0.15   # zayıf R:R'da: SL'e değince marjinin ~%15'i kaybedilsin
+MARGIN_RISK_MAX = 0.35   # güçlü R:R'da: SL'e değince marjinin ~%35'i kaybedilsin
+ACCOUNT_RISK_MIN = 0.005  # zayıf R:R'da: cüzdanın ~%0.5'i risk edilsin
+ACCOUNT_RISK_MAX = 0.02   # güçlü R:R'da: cüzdanın ~%2'si risk edilsin
+
+
+def risk_scale_factor(rr):
+    """TP1 R:R'ını 0-1 aralığına ölçekler (RR_SCALE_MIN..RR_SCALE_MAX arasında).
+    R:R bilinmiyorsa (TP bulunamadıysa) en muhafazakar (0) değeri döner."""
+    if rr is None:
+        return 0.0
+    rr = max(RR_SCALE_MIN, min(RR_SCALE_MAX, rr))
+    return (rr - RR_SCALE_MIN) / (RR_SCALE_MAX - RR_SCALE_MIN)
+
+
+def dynamic_margin_risk(rr1):
+    t = risk_scale_factor(rr1)
+    return MARGIN_RISK_MIN + t * (MARGIN_RISK_MAX - MARGIN_RISK_MIN)
+
+
+def dynamic_account_risk(rr1):
+    t = risk_scale_factor(rr1)
+    return ACCOUNT_RISK_MIN + t * (ACCOUNT_RISK_MAX - ACCOUNT_RISK_MIN)
 HTF_INTERVAL = "1d"
 LTF_INTERVAL = "4h"
 HTF_LIMIT = 400
@@ -224,27 +250,29 @@ def pick_tp_levels(entry, ltf_levels, htf_levels, direction, count=3, min_gap_pc
     return picked
 
 
-def suggest_leverage(entry, sl):
-    """SL mesafesine göre kaldıraç önerir: SL'e değince marjinin ~%LEVERAGE_MARGIN_RISK'i
+def suggest_leverage(entry, sl, margin_risk_fraction):
+    """SL mesafesine ve işlemin risk kalitesine (margin_risk_fraction, TP1 R:R'ından
+    türetilir) göre kaldıraç önerir: SL'e değince marjinin ~margin_risk_fraction'ı
     kaybedilecek şekilde, likidasyona tampon payı bırakan mekanik bir hesaplama.
     Kişiselleştirilmiş yatırım tavsiyesi değildir."""
     sl_pct = abs(entry - sl) / entry
     if sl_pct <= 0:
         return None
-    raw = LEVERAGE_MARGIN_RISK / sl_pct
+    raw = margin_risk_fraction / sl_pct
     capped = min(LEVERAGE_CAP, raw)
     eligible = [s for s in LEVERAGE_STEPS if s <= capped]
     return max(eligible) if eligible else 1
 
 
-def suggest_position_pct(entry, sl, leverage):
-    """SL'e değince cüzdanın ~ACCOUNT_RISK_PER_TRADE'i kaybedilecek şekilde,
-    kullanılacak marjinin cüzdana oranını (%) hesaplar. Kişiselleştirilmiş
-    yatırım tavsiyesi değildir, sabit bir risk-yüzdesi varsayımına dayanır."""
+def suggest_position_pct(entry, sl, leverage, account_risk_pct):
+    """SL'e değince cüzdanın ~account_risk_pct'i (TP1 R:R'ından türetilir)
+    kaybedilecek şekilde, kullanılacak marjinin cüzdana oranını (%) hesaplar.
+    Kişiselleştirilmiş yatırım tavsiyesi değildir, işlemin risk/getiri kalitesine
+    göre ölçeklenen mekanik bir hesaplamadır."""
     sl_pct = abs(entry - sl) / entry
     if sl_pct <= 0 or not leverage:
         return None
-    notional_pct = ACCOUNT_RISK_PER_TRADE / sl_pct
+    notional_pct = account_risk_pct / sl_pct
     margin_pct = notional_pct / leverage
     return min(margin_pct, MAX_POSITION_PCT)
 
@@ -291,7 +319,9 @@ def evaluate_symbol(symbol):
         sl = (ltf_ob["ob_bot"] if ltf_ob["ob_dir"] == 1 and ltf_ob["ob_bot"] is not None else low) - atr * SL_ATR_MULT
         tp1, tp2, tp3 = pick_tp_levels(close, ltf_highs, htf_highs, "long")
         rrs = [(tp - close) / (close - sl) if (tp is not None and close > sl) else None for tp in (tp1, tp2, tp3)]
-        leverage = suggest_leverage(close, sl)
+        margin_risk = dynamic_margin_risk(rrs[0])
+        account_risk = dynamic_account_risk(rrs[0])
+        leverage = suggest_leverage(close, sl, margin_risk)
         long_signal = {
             "direction": "LONG",
             "bos_close_time": ltf_ob["close_time"],
@@ -300,7 +330,9 @@ def evaluate_symbol(symbol):
             "tp1": tp1, "tp2": tp2, "tp3": tp3,
             "rr1": rrs[0], "rr2": rrs[1], "rr3": rrs[2],
             "leverage": leverage,
-            "position_pct": suggest_position_pct(close, sl, leverage),
+            "position_pct": suggest_position_pct(close, sl, leverage, account_risk),
+            "margin_risk": margin_risk,
+            "account_risk": account_risk,
             "zone_top": zone_top,
             "zone_bot": zone_bot,
         }
@@ -310,7 +342,9 @@ def evaluate_symbol(symbol):
         sl = (ltf_ob["ob_top"] if ltf_ob["ob_dir"] == -1 and ltf_ob["ob_top"] is not None else high) + atr * SL_ATR_MULT
         tp1, tp2, tp3 = pick_tp_levels(close, ltf_lows, htf_lows, "short")
         rrs = [(close - tp) / (sl - close) if (tp is not None and sl > close) else None for tp in (tp1, tp2, tp3)]
-        leverage = suggest_leverage(close, sl)
+        margin_risk = dynamic_margin_risk(rrs[0])
+        account_risk = dynamic_account_risk(rrs[0])
+        leverage = suggest_leverage(close, sl, margin_risk)
         short_signal = {
             "direction": "SHORT",
             "bos_close_time": ltf_ob["close_time"],
@@ -319,7 +353,9 @@ def evaluate_symbol(symbol):
             "tp1": tp1, "tp2": tp2, "tp3": tp3,
             "rr1": rrs[0], "rr2": rrs[1], "rr3": rrs[2],
             "leverage": leverage,
-            "position_pct": suggest_position_pct(close, sl, leverage),
+            "position_pct": suggest_position_pct(close, sl, leverage, account_risk),
+            "margin_risk": margin_risk,
+            "account_risk": account_risk,
             "zone_top": zone_top,
             "zone_bot": zone_bot,
         }
@@ -381,6 +417,9 @@ def format_message(symbol, sig):
     lev_text = f"~{lev}x" if lev else "n/a"
     pos_pct = sig.get("position_pct")
     pos_text = f"~%{pos_pct*100:.1f}" if pos_pct else "n/a"
+    margin_risk = sig.get("margin_risk")
+    account_risk = sig.get("account_risk")
+    quality_text = f"TP1 R:R ≈ {sig['rr1']:.2f} baz alındı" if sig.get("rr1") else "TP1 bulunamadı, en muhafazakar seviye kullanıldı"
 
     return (
         f"{emoji} <b>{direction}</b> — {symbol}\n"
@@ -390,9 +429,10 @@ def format_message(symbol, sig):
         f"TP1: {_fmt_tp(sig['tp1'], sig['rr1'])}\n"
         f"TP2: {_fmt_tp(sig['tp2'], sig['rr2'])}\n"
         f"TP3: {_fmt_tp(sig['tp3'], sig['rr3'])}\n"
-        f"Önerilen kaldıraç: {lev_text} (SL mesafesine göre, marjinin ~%{LEVERAGE_MARGIN_RISK*100:.0f}'i risk hedefiyle hesaplandı)\n"
-        f"Önerilen pozisyon büyüklüğü: cüzdanının {pos_text}'i (marjin olarak; SL'e değince cüzdanın ~%{ACCOUNT_RISK_PER_TRADE*100:.0f}'i kaybedilecek şekilde hesaplandı)\n"
-        f"⚠️ Bunlar yatırım tavsiyesi değildir, sabit risk varsayımlarına dayanan mekanik hesaplamalardır — kendi risk toleransına göre ayarla\n"
+        f"Önerilen kaldıraç: {lev_text} (SL'e değince marjinin ~%{margin_risk*100:.0f}'i risk edilecek şekilde, işlem kalitesine göre ölçeklendi)\n"
+        f"Önerilen pozisyon büyüklüğü: cüzdanının {pos_text}'i (SL'e değince cüzdanın ~%{account_risk*100:.2f}'i risk edilecek şekilde, işlem kalitesine göre ölçeklendi)\n"
+        f"Risk ölçeklendirme temeli: {quality_text}\n"
+        f"⚠️ Bunlar yatırım tavsiyesi değildir, işlemin R:R kalitesine göre ölçeklenen mekanik bir hesaplamadır — kendi risk toleransına göre ayarla\n"
         f"Onay mumu (4H kapanış): {bos_time_text} ({freshness})\n"
         f"Zaman dilimi: 1D → 4H onay"
     )
