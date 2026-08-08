@@ -187,6 +187,38 @@ def find_recent_bos(ltf_results, direction, confirm_window):
     return None
 
 
+def collect_pivot_levels(candles, length, kind):
+    """Geçmiş pivot tepe/dip fiyatlarını (likidite seviyeleri) döndürür."""
+    n = len(candles)
+    values = [c["high"] for c in candles] if kind == "high" else [c["low"] for c in candles]
+    levels = []
+    for i in range(length, n - length):
+        window = values[i - length:i + length + 1]
+        target = max(window) if kind == "high" else min(window)
+        if values[i] == target and window.count(target) == 1:
+            levels.append(values[i])
+    return levels
+
+
+def pick_tp_levels(entry, ltf_levels, htf_levels, direction, count=3, min_gap_pct=0.15):
+    """Entry'nin ötesindeki likidite seviyelerinden en yakın `count` tanesini seçer."""
+    candidates = sorted(set(ltf_levels) | set(htf_levels))
+    if direction == "long":
+        candidates = [lv for lv in candidates if lv > entry]
+    else:
+        candidates = sorted([lv for lv in candidates if lv < entry], reverse=True)
+
+    picked = []
+    for lv in candidates:
+        if all(abs(lv - p) / p > min_gap_pct / 100 for p in picked):
+            picked.append(lv)
+        if len(picked) == count:
+            break
+    while len(picked) < count:
+        picked.append(None)
+    return picked
+
+
 def evaluate_symbol(symbol):
     htf_candles = fetch_klines(symbol, HTF_INTERVAL, HTF_LIMIT)
     time.sleep(REQUEST_SLEEP)
@@ -219,19 +251,23 @@ def evaluate_symbol(symbol):
     long_signal = None
     short_signal = None
 
+    ltf_highs = collect_pivot_levels(ltf_candles[-(LIQUIDITY_LOOKBACK + PIVOT_LEN_LTF):], PIVOT_LEN_LTF, "high")
+    ltf_lows = collect_pivot_levels(ltf_candles[-(LIQUIDITY_LOOKBACK + PIVOT_LEN_LTF):], PIVOT_LEN_LTF, "low")
+    htf_highs = collect_pivot_levels(htf_candles, PIVOT_LEN_HTF, "high")
+    htf_lows = collect_pivot_levels(htf_candles, PIVOT_LEN_HTF, "low")
+
     if price_in_bull_zone and long_bos_idx is not None and bull_fvg:
         ltf_ob = ltf_results[long_bos_idx]
         sl = (ltf_ob["ob_bot"] if ltf_ob["ob_dir"] == 1 and ltf_ob["ob_bot"] is not None else low) - atr * SL_ATR_MULT
-        recent_highs = [c["high"] for c in ltf_candles[-(LIQUIDITY_LOOKBACK + 1):-1]]
-        tp = max(recent_highs) if recent_highs else close
-        rr = (tp - close) / (close - sl) if close > sl else None
+        tp1, tp2, tp3 = pick_tp_levels(close, ltf_highs, htf_highs, "long")
+        rrs = [(tp - close) / (close - sl) if (tp is not None and close > sl) else None for tp in (tp1, tp2, tp3)]
         long_signal = {
             "direction": "LONG",
             "bos_close_time": ltf_ob["close_time"],
             "entry": close,
             "sl": sl,
-            "tp": tp,
-            "rr": rr,
+            "tp1": tp1, "tp2": tp2, "tp3": tp3,
+            "rr1": rrs[0], "rr2": rrs[1], "rr3": rrs[2],
             "zone_top": zone_top,
             "zone_bot": zone_bot,
         }
@@ -239,16 +275,15 @@ def evaluate_symbol(symbol):
     if price_in_bear_zone and short_bos_idx is not None and bear_fvg:
         ltf_ob = ltf_results[short_bos_idx]
         sl = (ltf_ob["ob_top"] if ltf_ob["ob_dir"] == -1 and ltf_ob["ob_top"] is not None else high) + atr * SL_ATR_MULT
-        recent_lows = [c["low"] for c in ltf_candles[-(LIQUIDITY_LOOKBACK + 1):-1]]
-        tp = min(recent_lows) if recent_lows else close
-        rr = (close - tp) / (sl - close) if sl > close else None
+        tp1, tp2, tp3 = pick_tp_levels(close, ltf_lows, htf_lows, "short")
+        rrs = [(close - tp) / (sl - close) if (tp is not None and sl > close) else None for tp in (tp1, tp2, tp3)]
         short_signal = {
             "direction": "SHORT",
             "bos_close_time": ltf_ob["close_time"],
             "entry": close,
             "sl": sl,
-            "tp": tp,
-            "rr": rr,
+            "tp1": tp1, "tp2": tp2, "tp3": tp3,
+            "rr1": rrs[0], "rr2": rrs[1], "rr3": rrs[2],
             "zone_top": zone_top,
             "zone_bot": zone_bot,
         }
@@ -285,10 +320,16 @@ def send_telegram(message):
         print(f"Telegram gönderim hatası: {e}")
 
 
+def _fmt_tp(tp, rr):
+    if tp is None:
+        return "n/a (yeterli likidite seviyesi bulunamadı)"
+    rr_text = f"{rr:.2f}" if rr else "n/a"
+    return f"{tp:.6g}  (R:R ≈ {rr_text})"
+
+
 def format_message(symbol, sig):
     direction = sig["direction"]
     emoji = "🟢" if direction == "LONG" else "🔴"
-    rr_text = f"{sig['rr']:.2f}" if sig["rr"] else "n/a"
 
     bos_dt = datetime.fromtimestamp(sig["bos_close_time"] / 1000, tz=timezone.utc)
     now_dt = datetime.now(timezone.utc)
@@ -305,8 +346,9 @@ def format_message(symbol, sig):
         f"HTF Bölge (1D): {sig['zone_bot']:.6g} - {sig['zone_top']:.6g}\n"
         f"Giriş: {sig['entry']:.6g}\n"
         f"SL: {sig['sl']:.6g}\n"
-        f"TP: {sig['tp']:.6g}\n"
-        f"R:R ≈ {rr_text}\n"
+        f"TP1: {_fmt_tp(sig['tp1'], sig['rr1'])}\n"
+        f"TP2: {_fmt_tp(sig['tp2'], sig['rr2'])}\n"
+        f"TP3: {_fmt_tp(sig['tp3'], sig['rr3'])}\n"
         f"Onay mumu (4H kapanış): {bos_time_text} ({freshness})\n"
         f"Zaman dilimi: 1D → 4H onay"
     )
