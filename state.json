@@ -11,6 +11,9 @@
   "METUSDT": {
     "long": 1786204799999
   },
+  "ORCAUSDT": {
+    "short": 1786118399999
+  },
   "PEOPLEUSDT": {
     "long": 1786046399999
   },
@@ -25,6 +28,9 @@
   },
   "XUSDUSDT": {
     "short": 1786175999999
+  },
+  "XVSUSDT": {
+    "long": 1786161599999
   },
   "ZKPUSDT": {
     "long": 1786031999999
