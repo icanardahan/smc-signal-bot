@@ -34,6 +34,7 @@ from scanner import (
     compute_atr,
     collect_pivot_levels,
     pick_tp_levels,
+    is_valid_setup,
     send_telegram,
     PIVOT_LEN_HTF,
     PIVOT_LEN_LTF,
@@ -211,7 +212,7 @@ def evaluate_symbol_ict(symbol):
     score = sum(criteria.values())
     core_ok = all(criteria[k] for k in CORE_CRITERIA)
     confirm_count = sum(criteria[k] for k in CONFIRM_CRITERIA)
-    qualifies = core_ok and confirm_count >= MIN_CONFIRMATIONS
+    checklist_ok = core_ok and confirm_count >= MIN_CONFIRMATIONS
 
     # SL/TP hesaplaması: scanner.py'daki ana stratejiyle aynı yöntem —
     # kırılımın oluşturduğu order block'un ötesine SL, geçmiş likidite
@@ -233,6 +234,10 @@ def evaluate_symbol_ict(symbol):
               else break_candle["high"]) + atr * SL_ATR_MULT
         tp1, tp2, tp3 = pick_tp_levels(close, ltf_lows, htf_lows, "short")
         rrs = [(close - tp) / (sl - close) if (tp is not None and sl > close) else None for tp in (tp1, tp2, tp3)]
+
+    # Checklist geçse bile geometri tutarsızsa (SL girişin ters tarafında,
+    # ya da geçerli TP yoksa) sinyal gönderilmez.
+    qualifies = checklist_ok and is_valid_setup(close, sl, tp1, direction)
 
     return {
         "direction": direction,

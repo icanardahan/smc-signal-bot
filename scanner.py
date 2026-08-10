@@ -26,6 +26,18 @@ PIVOT_LEN_LTF = 3
 CONFIRM_WINDOW = 15       # 4H bar cinsinden
 LIQUIDITY_LOOKBACK = 100  # TP için geriye bakılacak 4H bar sayısı
 SL_ATR_MULT = 0.15
+HTF_INTERVAL = "1d"
+LTF_INTERVAL = "4h"
+HTF_LIMIT = 400
+LTF_LIMIT = 400
+OB_SEARCH_MAX = 50
+REQUEST_SLEEP = 0.15  # rate-limit için istekler arası bekleme (saniye)
+
+# Bir TP seviyesi girişe bundan daha yakınsa hedef sayılmaz (yüzde).
+# Aksi halde girişin hemen üstündeki bir pivot TP1 olarak seçilip R:R'ı
+# anlamsız derecede düşürüyor.
+MIN_TP_DISTANCE_PCT = 0.30
+
 LEVERAGE_CAP = 20            # ne kadar dar SL olursa olsun bu değeri aşma
 LEVERAGE_STEPS = [1, 2, 3, 5, 10, 15, 20, 25, 30, 40, 50, 75, 100]
 MAX_POSITION_PCT = 0.20        # marjin, cüzdanın bu oranını tek işlemde aşmasın
@@ -57,12 +69,7 @@ def dynamic_margin_risk(rr1):
 def dynamic_account_risk(rr1):
     t = risk_scale_factor(rr1)
     return ACCOUNT_RISK_MIN + t * (ACCOUNT_RISK_MAX - ACCOUNT_RISK_MIN)
-HTF_INTERVAL = "1d"
-LTF_INTERVAL = "4h"
-HTF_LIMIT = 400
-LTF_LIMIT = 400
-OB_SEARCH_MAX = 50
-REQUEST_SLEEP = 0.15  # rate-limit için istekler arası bekleme (saniye)
+
 
 EXCLUDE_SUFFIXES = ("UPUSDT", "DOWNUSDT", "BULLUSDT", "BEARUSDT")
 EXCLUDE_BASE_STABLES = {"USDC", "BUSD", "FDUSD", "TUSD", "DAI", "USDP", "EUR", "GBP", "AEUR", "USTC"}
@@ -232,12 +239,15 @@ def collect_pivot_levels(candles, length, kind):
 
 
 def pick_tp_levels(entry, ltf_levels, htf_levels, direction, count=3, min_gap_pct=0.15):
-    """Entry'nin ötesindeki likidite seviyelerinden en yakın `count` tanesini seçer."""
+    """Entry'nin ötesindeki likidite seviyelerinden en yakın `count` tanesini seçer.
+    Girişe MIN_TP_DISTANCE_PCT'den yakın seviyeler elenir — aksi halde girişin
+    hemen dibindeki bir pivot TP1 olarak seçilip R:R'ı anlamsız kılıyor."""
+    min_dist = entry * MIN_TP_DISTANCE_PCT / 100
     candidates = sorted(set(ltf_levels) | set(htf_levels))
     if direction == "long":
-        candidates = [lv for lv in candidates if lv > entry]
+        candidates = [lv for lv in candidates if lv > entry + min_dist]
     else:
-        candidates = sorted([lv for lv in candidates if lv < entry], reverse=True)
+        candidates = sorted([lv for lv in candidates if lv < entry - min_dist], reverse=True)
 
     picked = []
     for lv in candidates:
@@ -248,6 +258,18 @@ def pick_tp_levels(entry, ltf_levels, htf_levels, direction, count=3, min_gap_pc
     while len(picked) < count:
         picked.append(None)
     return picked
+
+
+def is_valid_setup(entry, sl, tp1, direction):
+    """Kurulumun geometrisi tutarlı mı? SL, order block'tan türetildiği için
+    (kırılım 15 bar öncesine kadar eski olabilir) fiyat bu arada SL'in öbür
+    tarafına geçmiş olabilir — o durumda long'da SL girişin ÜSTÜNDE kalır ve
+    işlem anlamsızlaşır. Ayrıca en az bir geçerli TP bulunmuş olmalı."""
+    if entry is None or sl is None or tp1 is None:
+        return False
+    if direction == "long":
+        return sl < entry < tp1
+    return tp1 < entry < sl
 
 
 def suggest_leverage(entry, sl, margin_risk_fraction):
@@ -322,9 +344,10 @@ def evaluate_symbol(symbol):
         margin_risk = dynamic_margin_risk(rrs[0])
         account_risk = dynamic_account_risk(rrs[0])
         leverage = suggest_leverage(close, sl, margin_risk)
-        long_signal = {
+        long_signal = None if not is_valid_setup(close, sl, tp1, "long") else {
             "direction": "LONG",
             "bos_close_time": ltf_ob["close_time"],
+            "entry_close_time": ltf_candles[-1]["close_time"],
             "entry": close,
             "sl": sl,
             "tp1": tp1, "tp2": tp2, "tp3": tp3,
@@ -345,9 +368,10 @@ def evaluate_symbol(symbol):
         margin_risk = dynamic_margin_risk(rrs[0])
         account_risk = dynamic_account_risk(rrs[0])
         leverage = suggest_leverage(close, sl, margin_risk)
-        short_signal = {
+        short_signal = None if not is_valid_setup(close, sl, tp1, "short") else {
             "direction": "SHORT",
             "bos_close_time": ltf_ob["close_time"],
+            "entry_close_time": ltf_candles[-1]["close_time"],
             "entry": close,
             "sl": sl,
             "tp1": tp1, "tp2": tp2, "tp3": tp3,
@@ -444,6 +468,8 @@ def _fmt_level(v):
 
 def format_open_positions_digest(open_positions):
     """open_positions: [(symbol, direction, pos, current_price), ...]"""
+    if not open_positions:
+        return []  # açık pozisyon yokken boş başlık mesajı gönderme
     status_labels = {"open": "açık", "tp1_hit": "TP1 vuruldu, devam ediyor", "tp2_hit": "TP2 vuruldu, devam ediyor"}
     blocks = []
     for symbol, direction, pos, current_price in open_positions:
@@ -578,6 +604,13 @@ def main():
 
             # 1) Mevcut açık pozisyon varsa SL/TP1/TP2/TP3'e değindi mi kontrol et
             if isinstance(existing_pos, dict) and existing_pos.get("entry"):
+                # Eski format geçişi: entry_close_time'ı olmayan pozisyonların
+                # last_checked'i hatalı olarak BOS mumuna kurulmuştu; takibi
+                # şimdiki mumdan başlatarak sahte SL/TP bildirimini önle.
+                if "entry_close_time" not in existing_pos:
+                    existing_pos["entry_close_time"] = ltf_candles[-1]["close_time"]
+                    existing_pos["last_checked_close_time"] = ltf_candles[-1]["close_time"]
+                    print(f"[{symbol}] {direction_key}: eski format pozisyon taşındı")
                 updated_pos, events = monitor_position(existing_pos, ltf_candles, direction_key)
                 sym_state[direction_key] = updated_pos
                 for ev in events:
@@ -596,6 +629,12 @@ def main():
             if existing_bos == sig["bos_close_time"]:
                 continue  # bu BOS için zaten alarm gönderildi / izleniyor
 
+            # Aynı sembol+yönde hâlâ açık bir pozisyon varken üstüne yenisini
+            # açma: eskisinin takibi kaybolur ve özet listesinde çift görünür.
+            if isinstance(existing_pos, dict) and existing_pos.get("status") in ("open", "tp1_hit", "tp2_hit"):
+                print(f"[{symbol}] {direction_key}: açık pozisyon var, yeni sinyal atlandı")
+                continue
+
             print(f"[{symbol}] {sig['direction']} sinyali gönderiliyor (BOS: {sig['bos_close_time']})")
             send_telegram(format_message(symbol, sig))
             new_pos = {
@@ -605,7 +644,11 @@ def main():
                 "tp1": sig["tp1"], "tp2": sig["tp2"], "tp3": sig["tp3"],
                 "leverage": sig["leverage"],
                 "status": "open",
-                "last_checked_close_time": sig["bos_close_time"],
+                "entry_close_time": sig["entry_close_time"],
+                # Takip, BOS mumundan değil GİRİŞ mumundan sonra başlamalı.
+                # Aksi halde giriş öncesindeki barlar da SL/TP kontrolüne girip
+                # sahte "SL vuruldu" bildirimi üretiyor.
+                "last_checked_close_time": sig["entry_close_time"],
             }
             sym_state[direction_key] = new_pos
             open_positions.append((symbol, direction_key, new_pos, current_price))
