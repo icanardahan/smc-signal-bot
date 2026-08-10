@@ -24,7 +24,8 @@
     "short": {
       "bos_close_time": 1786348799999,
       "entry": 0.0947,
-      "last_checked_close_time": 1786348799999,
+      "entry_close_time": 1786363199999,
+      "last_checked_close_time": 1786363199999,
       "leverage": 3,
       "sl": 0.09933535714285714,
       "status": "open",
@@ -55,6 +56,7 @@
     "short": {
       "bos_close_time": 1786363199999,
       "entry": 0.00362,
+      "entry_close_time": 1786363199999,
       "last_checked_close_time": 1786363199999,
       "leverage": 3,
       "sl": 0.0037294285714285715,
