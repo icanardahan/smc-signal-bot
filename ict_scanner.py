@@ -44,6 +44,7 @@ from scanner import (
     pick_tp_levels,
     is_valid_setup,
     send_telegram,
+    MIN_TP1_RR,
     PIVOT_LEN_HTF,
     PIVOT_LEN_LTF,
     CONFIRM_WINDOW,
@@ -132,6 +133,19 @@ def in_killzone(ms):
     dt = to_ny(ms)
     h = dt.hour + dt.minute / 60
     return (LONDON_KZ_NY[0] <= h < LONDON_KZ_NY[1]) or (NY_KZ_NY[0] <= h < NY_KZ_NY[1])
+
+
+def get_ny_midnight_open(m15_candles):
+    """En son NY gece yarısı (00:00 NY) mumunun AÇILIŞ fiyatı.
+    ICT'de günün premium/discount referansı budur: fiyat bu seviyenin altındaysa
+    'ucuz' (long aranır), üstündeyse 'pahalı' (short aranır)."""
+    best = None
+    for c in m15_candles:
+        dt = to_ny(c["open_time"])
+        if dt.hour == 0 and dt.minute == 0:
+            if best is None or c["open_time"] > best["open_time"]:
+                best = c
+    return best["open"] if best else None
 
 
 def get_asian_range(m15_candles):
@@ -266,6 +280,17 @@ def evaluate_symbol_ict(symbol):
     asian_high, asian_low = get_asian_range(m15_candles)
     sweep_candle, disp_candle = find_kz_setup(m15_candles, direction, asian_high, asian_low)
 
+    # NY Midnight Open (00:00 NY) premium/discount filtresi:
+    # long sadece açılışın ALTINDA (discount), short sadece ÜSTÜNDE (premium).
+    midnight_open = get_ny_midnight_open(m15_candles)
+    current_price = m15_candles[-1]["close"] if m15_candles else None
+    if midnight_open is None or current_price is None:
+        midnight_ok = False
+    elif direction == "long":
+        midnight_ok = current_price < midnight_open
+    else:
+        midnight_ok = current_price > midnight_open
+
     # Kill zone kriteri: mumun ne zaman AÇILDIĞI değil, likidite avının ve
     # displacement'ın KZ penceresi içinde GERÇEKLEŞMİŞ olması aranır.
     killzone_ok = (
@@ -312,9 +337,10 @@ def evaluate_symbol_ict(symbol):
         tp1, tp2, tp3 = pick_tp_levels(close, ltf_lows, htf_lows, "short")
         rrs = [(close - tp) / (sl - close) if (tp is not None and sl > close) else None for tp in (tp1, tp2, tp3)]
 
-    # Checklist geçse bile geometri tutarsızsa (SL girişin ters tarafında,
-    # ya da geçerli TP yoksa) sinyal gönderilmez.
-    qualifies = checklist_ok and is_valid_setup(close, sl, tp1, direction)
+    # Checklist geçse bile şu zorunlu şartlar sağlanmadıkça sinyal gönderilmez:
+    #  - geometri tutarlı ve TP1 R:R >= MIN_TP1_RR (is_valid_setup)
+    #  - NY Midnight Open premium/discount yönü uyuyor
+    qualifies = checklist_ok and midnight_ok and is_valid_setup(close, sl, tp1, direction)
 
     return {
         "direction": direction,
@@ -328,6 +354,8 @@ def evaluate_symbol_ict(symbol):
         "break_close_time": break_candle["close_time"],
         "sweep_time": sweep_candle["open_time"] if sweep_candle else None,
         "disp_time": disp_candle["open_time"] if disp_candle else None,
+        "midnight_open": midnight_open,
+        "midnight_ok": midnight_ok,
     }
 
 
@@ -360,6 +388,12 @@ def format_ict_message(symbol, result):
     for key in CONFIRM_CRITERIA:
         mark = "✅" if result["criteria"][key] else "❌"
         lines.append(f"{mark} {CRITERIA_LABELS[key]}")
+    lines.append("")
+    if result.get("midnight_open"):
+        bolge = "Discount (ucuz)" if direction == "long" else "Premium (pahalı)"
+        lines.append(f"✅ NY Midnight Open: {result['midnight_open']:.6g} — fiyat {bolge} bölgede")
+    if result.get("rr1"):
+        lines.append(f"✅ TP1 R:R {result['rr1']:.2f} (asgari {MIN_TP1_RR} şartı sağlandı)")
     lines.append("")
     if result.get("sweep_time"):
         lines.append(f"Likidite avı: {to_ny(result['sweep_time']).strftime('%Y-%m-%d %H:%M')} NY")

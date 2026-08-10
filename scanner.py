@@ -38,6 +38,15 @@ REQUEST_SLEEP = 0.15  # rate-limit için istekler arası bekleme (saniye)
 # anlamsız derecede düşürüyor.
 MIN_TP_DISTANCE_PCT = 0.30
 
+# Zorunlu şart: TP1'in risk/getiri oranı bunun altındaysa işlem asimetrik
+# değildir ("Düşük R:R") ve sinyal hiç gönderilmez. Her iki strateji için de
+# geçerlidir.
+MIN_TP1_RR = 1.5
+
+# Açık pozisyon bu süre boyunca ne SL'e ne de TP3'e ulaşmazsa "zaman aşımı"
+# sayılır, kapatılır ve parite yeniden taramaya dahil edilir.
+POSITION_TIMEOUT_HOURS = 12
+
 LEVERAGE_CAP = 20            # ne kadar dar SL olursa olsun bu değeri aşma
 LEVERAGE_STEPS = [1, 2, 3, 5, 10, 15, 20, 25, 30, 40, 50, 75, 100]
 MAX_POSITION_PCT = 0.20        # marjin, cüzdanın bu oranını tek işlemde aşmasın
@@ -261,15 +270,22 @@ def pick_tp_levels(entry, ltf_levels, htf_levels, direction, count=3, min_gap_pc
 
 
 def is_valid_setup(entry, sl, tp1, direction):
-    """Kurulumun geometrisi tutarlı mı? SL, order block'tan türetildiği için
-    (kırılım 15 bar öncesine kadar eski olabilir) fiyat bu arada SL'in öbür
-    tarafına geçmiş olabilir — o durumda long'da SL girişin ÜSTÜNDE kalır ve
-    işlem anlamsızlaşır. Ayrıca en az bir geçerli TP bulunmuş olmalı."""
+    """Kurulum işleme değer mi?
+    1) Geometri tutarlı olmalı: SL, order block'tan türetildiği için (kırılım
+       15 bar öncesine kadar eski olabilir) fiyat bu arada SL'in öbür tarafına
+       geçmiş olabilir — o durumda long'da SL girişin ÜSTÜNDE kalır.
+    2) TP1 R:R en az MIN_TP1_RR olmalı; altındaysa işlem asimetrik değildir."""
     if entry is None or sl is None or tp1 is None:
         return False
     if direction == "long":
-        return sl < entry < tp1
-    return tp1 < entry < sl
+        if not sl < entry < tp1:
+            return False
+    elif not tp1 < entry < sl:
+        return False
+    risk = abs(entry - sl)
+    if risk <= 0:
+        return False
+    return abs(tp1 - entry) / risk >= MIN_TP1_RR
 
 
 def suggest_leverage(entry, sl, margin_risk_fraction):
@@ -393,7 +409,7 @@ def monitor_position(pos, ltf_candles, direction):
     (updated_pos, events) döner; events örn. ["tp1_hit", "sl_hit"]."""
     if not pos.get("entry") or pos.get("sl") is None:
         return pos, []  # eski format / eksik veri, izlenemez
-    if pos.get("status") in ("sl_hit", "tp3_hit"):
+    if pos.get("status") in ("sl_hit", "tp3_hit", "timeout"):
         return pos, []  # kapanmış, izlemeye gerek yok
 
     last_checked = pos.get("last_checked_close_time", pos.get("bos_close_time", 0))
@@ -428,6 +444,17 @@ def monitor_position(pos, ltf_candles, direction):
                 status = "tp3_hit"
                 events.append("tp3_hit")
 
+    # Zaman aşımı: pozisyon açıldıktan sonra POSITION_TIMEOUT_HOURS boyunca ne
+    # SL ne TP3 geldiyse kapat, böylece parite yeniden taramaya dahil olur.
+    if status in ("open", "tp1_hit", "tp2_hit"):
+        opened_at = pos.get("entry_close_time")
+        if opened_at is not None:
+            age_hours = (new_candles[-1]["close_time"] - opened_at) / 3600000
+            if age_hours >= POSITION_TIMEOUT_HOURS:
+                pos["timeout_after_hours"] = round(age_hours, 1)
+                status = "timeout"
+                events.append("timeout")
+
     pos["status"] = status
     pos["last_checked_close_time"] = new_candles[-1]["close_time"]
     return pos, events
@@ -442,17 +469,30 @@ EVENT_LABELS = {
     "tp1_hit": ("🎯", "TP1 VURULDU"),
     "tp2_hit": ("🎯🎯", "TP2 VURULDU"),
     "tp3_hit": ("🏁", "TP3 VURULDU (pozisyon tamamen kapandı)"),
+    "timeout": ("⏳", "ZAMAN AŞIMI"),
 }
 
 EVENT_PRICE_KEY = {"sl_hit": "sl", "tp1_hit": "tp1", "tp2_hit": "tp2", "tp3_hit": "tp3"}
 
 
-def format_event_message(symbol, direction, pos, event):
+def format_event_message(symbol, direction, pos, event, current_price=None):
     emoji, label = EVENT_LABELS[event]
     is_long = direction == "long"
-    price = pos[EVENT_PRICE_KEY[event]]
     entry = pos["entry"]
     lev = pos.get("leverage") or 1
+
+    if event == "timeout":
+        price = current_price if current_price is not None else entry
+        price_pct = pct_move(entry, price, is_long)
+        return (
+            f"{emoji} <b>{label}</b> — {symbol} {direction.upper()}\n"
+            f"Giriş: {entry:.6g}  Güncel: {price:.6g}\n"
+            f"Fiyat P&L: {price_pct:+.2f}%  Marjin P&L (~{lev}x): {price_pct * lev:+.2f}%\n"
+            f"{pos.get('timeout_after_hours', POSITION_TIMEOUT_HOURS)} saatte SL/TP3 gelmedi, "
+            f"pozisyon kapatıldı ve parite yeniden taramaya alındı."
+        )
+
+    price = pos[EVENT_PRICE_KEY[event]]
     price_pct = pct_move(entry, price, is_long)
     margin_pct = price_pct * lev
     return (
@@ -615,7 +655,7 @@ def main():
                 sym_state[direction_key] = updated_pos
                 for ev in events:
                     print(f"[{symbol}] {direction_key} {ev}")
-                    send_telegram(format_event_message(symbol, direction_key, updated_pos, ev))
+                    send_telegram(format_event_message(symbol, direction_key, updated_pos, ev, current_price))
                     events_sent += 1
                 if updated_pos.get("status") in ("open", "tp1_hit", "tp2_hit"):
                     open_positions.append((symbol, direction_key, updated_pos, current_price))

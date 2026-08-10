@@ -87,6 +87,16 @@ Bu kişiselleştirilmiş yatırım tavsiyesi değildir — işlemin R:R'ına gö
 ölçeklenen mekanik bir hesaplamadır, kendi risk toleransına göre `scanner.py`
 başındaki aralık sabitlerini değiştirebilirsin.
 
+## Zorunlu şartlar (her iki strateji için)
+Checklist/onay mantığından bağımsız olarak, aşağıdaki şart sağlanmazsa sinyal
+**hiç gönderilmez**:
+
+- **Minimum R:R** — `TP1_RR = |TP1 - Giriş| / |Giriş - SL|` hesaplanır;
+  `MIN_TP1_RR` (varsayılan **1.5**) altındaysa işlem "Düşük R:R (asimetrik
+  değil)" gerekçesiyle reddedilir.
+- **Geometri tutarlılığı** — long'da `SL < Giriş < TP1`, short'ta
+  `TP1 < Giriş < SL` olmalı.
+
 ## Pozisyon takibi (SL/TP olayları + açık pozisyon özeti)
 Bir sinyal gönderildikten sonra bot o pozisyonu `state.json`'da izlemeye devam
 eder:
@@ -96,7 +106,12 @@ eder:
 - **Açık pozisyon özeti**: Her taramanın sonunda, henüz SL/TP3'e ulaşmamış
   tüm pozisyonlar için tek bir özet mesaj gönderilir — güncel fiyat, fiyat
   P&L%, kaldıraçlı marjin P&L%, ve kalan SL/TP seviyeleri.
-- TP3'e ulaşan veya SL'e takılan pozisyonlar kapanmış sayılır, artık izlenmez.
+- **Zaman aşımı**: Pozisyon açıldıktan sonra `POSITION_TIMEOUT_HOURS`
+  (varsayılan **12 saat**) boyunca ne SL'e ne TP3'e ulaşmazsa otomatik
+  "Zaman Aşımı" olarak işaretlenir, kapatılır ve parite yeniden taramaya
+  dahil edilir. Telegram'a o anki P&L ile bildirim gider.
+- TP3'e ulaşan, SL'e takılan veya zaman aşımına uğrayan pozisyonlar kapanmış
+  sayılır, artık izlenmez ve o sembol+yönde yeni sinyal alınabilir.
 
 ## ICT Checklist stratejisi (ict_scanner.py)
 `scanner.py`'daki stratejiden bağımsız, ikinci bir yöntem. "Altın Kural"
