@@ -360,7 +360,119 @@ def evaluate_symbol(symbol):
             "zone_bot": zone_bot,
         }
 
-    return {"long": long_signal, "short": short_signal}
+    return {"long": long_signal, "short": short_signal, "close": close, "ltf_candles": ltf_candles}
+
+
+def monitor_position(pos, ltf_candles, direction):
+    """Açık bir pozisyonu son taramadan bu yana gelen mumlarla günceller.
+    SL/TP1/TP2/TP3 seviyelerine değinip değinmediğini sırayla kontrol eder.
+    (updated_pos, events) döner; events örn. ["tp1_hit", "sl_hit"]."""
+    if not pos.get("entry") or pos.get("sl") is None:
+        return pos, []  # eski format / eksik veri, izlenemez
+    if pos.get("status") in ("sl_hit", "tp3_hit"):
+        return pos, []  # kapanmış, izlemeye gerek yok
+
+    last_checked = pos.get("last_checked_close_time", pos.get("bos_close_time", 0))
+    new_candles = [c for c in ltf_candles if c["close_time"] > last_checked]
+    if not new_candles:
+        return pos, []
+
+    is_long = direction == "long"
+    sl, tp1, tp2, tp3 = pos["sl"], pos.get("tp1"), pos.get("tp2"), pos.get("tp3")
+    status = pos.get("status", "open")
+    events = []
+
+    for c in new_candles:
+        hit_sl = (c["low"] <= sl) if is_long else (c["high"] >= sl)
+        if hit_sl:
+            status = "sl_hit"
+            events.append("sl_hit")
+            break
+        if status == "open" and tp1 is not None:
+            hit = (c["high"] >= tp1) if is_long else (c["low"] <= tp1)
+            if hit:
+                status = "tp1_hit"
+                events.append("tp1_hit")
+        if status == "tp1_hit" and tp2 is not None:
+            hit = (c["high"] >= tp2) if is_long else (c["low"] <= tp2)
+            if hit:
+                status = "tp2_hit"
+                events.append("tp2_hit")
+        if status == "tp2_hit" and tp3 is not None:
+            hit = (c["high"] >= tp3) if is_long else (c["low"] <= tp3)
+            if hit:
+                status = "tp3_hit"
+                events.append("tp3_hit")
+
+    pos["status"] = status
+    pos["last_checked_close_time"] = new_candles[-1]["close_time"]
+    return pos, events
+
+
+def pct_move(entry, price, is_long):
+    return (price - entry) / entry * 100 if is_long else (entry - price) / entry * 100
+
+
+EVENT_LABELS = {
+    "sl_hit": ("🛑", "SL VURULDU"),
+    "tp1_hit": ("🎯", "TP1 VURULDU"),
+    "tp2_hit": ("🎯🎯", "TP2 VURULDU"),
+    "tp3_hit": ("🏁", "TP3 VURULDU (pozisyon tamamen kapandı)"),
+}
+
+EVENT_PRICE_KEY = {"sl_hit": "sl", "tp1_hit": "tp1", "tp2_hit": "tp2", "tp3_hit": "tp3"}
+
+
+def format_event_message(symbol, direction, pos, event):
+    emoji, label = EVENT_LABELS[event]
+    is_long = direction == "long"
+    price = pos[EVENT_PRICE_KEY[event]]
+    entry = pos["entry"]
+    lev = pos.get("leverage") or 1
+    price_pct = pct_move(entry, price, is_long)
+    margin_pct = price_pct * lev
+    return (
+        f"{emoji} <b>{label}</b> — {symbol} {direction.upper()}\n"
+        f"Giriş: {entry:.6g}  Seviye: {price:.6g}\n"
+        f"Fiyat P&L: {price_pct:+.2f}%  Marjin P&L (~{lev}x): {margin_pct:+.2f}%"
+    )
+
+
+def _fmt_level(v):
+    return f"{v:.6g}" if v is not None else "n/a"
+
+
+def format_open_positions_digest(open_positions):
+    """open_positions: [(symbol, direction, pos, current_price), ...]"""
+    status_labels = {"open": "açık", "tp1_hit": "TP1 vuruldu, devam ediyor", "tp2_hit": "TP2 vuruldu, devam ediyor"}
+    blocks = []
+    for symbol, direction, pos, current_price in open_positions:
+        is_long = direction == "long"
+        entry = pos["entry"]
+        lev = pos.get("leverage") or 1
+        price_pct = pct_move(entry, current_price, is_long)
+        margin_pct = price_pct * lev
+        emoji = "🟢" if is_long else "🔴"
+        status_text = status_labels.get(pos.get("status", "open"), pos.get("status"))
+        blocks.append(
+            f"{emoji} <b>{symbol} {direction.upper()}</b> — {status_text}\n"
+            f"Giriş: {entry:.6g}  Güncel: {current_price:.6g}\n"
+            f"Fiyat P&L: {price_pct:+.2f}%  Marjin P&L (~{lev}x): {margin_pct:+.2f}%\n"
+            f"SL: {_fmt_level(pos.get('sl'))}  TP1: {_fmt_level(pos.get('tp1'))}  "
+            f"TP2: {_fmt_level(pos.get('tp2'))}  TP3: {_fmt_level(pos.get('tp3'))}"
+        )
+
+    # Telegram mesaj limiti (4096 karakter) aşılmasın diye parçalara böl
+    messages = []
+    current = "📊 <b>Açık pozisyonlar</b>\n\n"
+    for block in blocks:
+        if len(current) + len(block) + 2 > 3500:
+            messages.append(current.rstrip())
+            current = ""
+        current += block + "\n\n"
+    if current.strip():
+        messages.append(current.rstrip())
+    return messages
 
 
 def load_state():
@@ -444,6 +556,9 @@ def main():
     print(f"{len(symbols)} sembol taranacak.")
 
     sent = 0
+    events_sent = 0
+    open_positions = []
+
     for i, symbol in enumerate(symbols):
         try:
             result = evaluate_symbol(symbol)
@@ -455,17 +570,45 @@ def main():
             continue
 
         sym_state = state.get(symbol, {})
+        ltf_candles = result["ltf_candles"]
+        current_price = result["close"]
 
         for direction_key in ("long", "short"):
+            existing_pos = sym_state.get(direction_key)
+
+            # 1) Mevcut açık pozisyon varsa SL/TP1/TP2/TP3'e değindi mi kontrol et
+            if isinstance(existing_pos, dict) and existing_pos.get("entry"):
+                updated_pos, events = monitor_position(existing_pos, ltf_candles, direction_key)
+                sym_state[direction_key] = updated_pos
+                for ev in events:
+                    print(f"[{symbol}] {direction_key} {ev}")
+                    send_telegram(format_event_message(symbol, direction_key, updated_pos, ev))
+                    events_sent += 1
+                if updated_pos.get("status") in ("open", "tp1_hit", "tp2_hit"):
+                    open_positions.append((symbol, direction_key, updated_pos, current_price))
+
+            # 2) Yeni bir sinyal var mı (yeni/farklı bir BOS)?
             sig = result[direction_key]
             if not sig:
                 continue
-            last_alerted = sym_state.get(direction_key)
-            if last_alerted == sig["bos_close_time"]:
-                continue  # bu BOS için zaten alarm gönderildi
+            existing_pos = sym_state.get(direction_key)
+            existing_bos = existing_pos.get("bos_close_time") if isinstance(existing_pos, dict) else existing_pos
+            if existing_bos == sig["bos_close_time"]:
+                continue  # bu BOS için zaten alarm gönderildi / izleniyor
+
             print(f"[{symbol}] {sig['direction']} sinyali gönderiliyor (BOS: {sig['bos_close_time']})")
             send_telegram(format_message(symbol, sig))
-            sym_state[direction_key] = sig["bos_close_time"]
+            new_pos = {
+                "bos_close_time": sig["bos_close_time"],
+                "entry": sig["entry"],
+                "sl": sig["sl"],
+                "tp1": sig["tp1"], "tp2": sig["tp2"], "tp3": sig["tp3"],
+                "leverage": sig["leverage"],
+                "status": "open",
+                "last_checked_close_time": sig["bos_close_time"],
+            }
+            sym_state[direction_key] = new_pos
+            open_positions.append((symbol, direction_key, new_pos, current_price))
             sent += 1
 
         if sym_state:
@@ -475,7 +618,12 @@ def main():
             print(f"{i + 1}/{len(symbols)} tarandı...")
 
     save_state(state)
-    print(f"Tarama bitti. {sent} yeni sinyal gönderildi.")
+
+    for digest_msg in format_open_positions_digest(open_positions):
+        send_telegram(digest_msg)
+
+    print(f"Tarama bitti. {sent} yeni sinyal, {events_sent} pozisyon olayı gönderildi. "
+          f"{len(open_positions)} pozisyon açık.")
 
 
 if __name__ == "__main__":

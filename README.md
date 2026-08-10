@@ -72,6 +72,17 @@ Bu kişiselleştirilmiş yatırım tavsiyesi değildir — işlemin R:R'ına gö
 ölçeklenen mekanik bir hesaplamadır, kendi risk toleransına göre `scanner.py`
 başındaki aralık sabitlerini değiştirebilirsin.
 
+## Pozisyon takibi (SL/TP olayları + açık pozisyon özeti)
+Bir sinyal gönderildikten sonra bot o pozisyonu `state.json`'da izlemeye devam
+eder:
+- **Anlık olay mesajı**: SL, TP1, TP2 veya TP3 seviyesine değinildiğinde
+  (bir sonraki 4H mumlarına bakılarak) anında ayrı bir Telegram mesajı gelir,
+  içinde o seviyedeki fiyat P&L% ve kaldıraçlı marjin P&L% bulunur.
+- **Açık pozisyon özeti**: Her taramanın sonunda, henüz SL/TP3'e ulaşmamış
+  tüm pozisyonlar için tek bir özet mesaj gönderilir — güncel fiyat, fiyat
+  P&L%, kaldıraçlı marjin P&L%, ve kalan SL/TP seviyeleri.
+- TP3'e ulaşan veya SL'e takılan pozisyonlar kapanmış sayılır, artık izlenmez.
+
 ## Sınırlamalar
 - OB/FVG/BOS tespiti basitleştirilmiş bir yaklaşımdır, TradingView'daki Pine
   Script ile birebir aynı mantığı kullanır ama farklı piyasa koşullarında
