@@ -99,24 +99,30 @@ eder:
 - TP3'e ulaşan veya SL'e takılan pozisyonlar kapanmış sayılır, artık izlenmez.
 
 ## ICT Checklist stratejisi (ict_scanner.py)
-`scanner.py`'daki stratejiden bağımsız, ikinci bir yöntem. 5 kriteri otomatik
-puanlar (`ICT_MIN_SCORE = 3` ve üzeri skorlarda uyarı gönderir):
+`scanner.py`'daki stratejiden bağımsız, ikinci bir yöntem. "Altın Kural"
+mantığıyla çalışır: 5 kriter **çekirdek** ve **onay** olarak ikiye ayrılır,
+uyarı sadece çekirdeğin tamamı + onaylardan en az biri sağlandığında gider
+(toplam skor en az 4/5):
 
-1. **HTF Bias Uyumu** — LTF'deki (4H) son yapı kırılımının yönü, günlük
-   grafikteki son yapı kırılımıyla (bias) aynı mı?
-2. **Kill Zone Zamanlaması** — kırılım mumu London (07-10 UTC) veya New York
+**Çekirdek (hepsi sağlanmalı):**
+1. **Kill Zone Zamanlaması** — kırılım mumu London (07-10 UTC) veya New York
    (12-15 UTC) kill zone'u ile kesişiyor mu?
-3. **Liquidity Sweep** — en son Asya seansı (00-07 UTC) tepe/dibi süpürülüp
+2. **Liquidity Sweep** — en son Asya seansı (00-07 UTC) tepe/dibi süpürülüp
    fiyat geri döndü mü?
-4. **MSS / Displacement** — kırılım mumunun gövdesi, önceki 20 muma göre en
+3. **MSS / Displacement** — kırılım mumunun gövdesi, önceki 20 muma göre en
    az `DISPLACEMENT_BODY_MULT` (1.5x) büyük mü?
+
+**Onaylar (en az 1 sağlanmalı):**
+4. **HTF Bias Uyumu** — LTF'deki (4H) son yapı kırılımının yönü, günlük
+   grafikteki son yapı kırılımıyla (bias) aynı mı?
 5. **FVG / OTE Teması** — fiyat taze bir FVG içinde mi veya son bacağın
    0.618-0.786 (OTE) retracement bölgesinde mi?
 
-Uyarı mesajında her kriter ✅/❌ ile gösterilir, skor ve fiyat bilgisi eklenir.
-Parametreler `ict_scanner.py` başında ayarlanabilir: `ICT_MIN_SCORE`,
-`LONDON_KZ`, `NY_KZ`, `DISPLACEMENT_BODY_MULT`, `LIQUIDITY_SWEEP_LOOKBACK`,
-`OTE_SWING_LOOKBACK`.
+Uyarı mesajında SL/TP1/TP2/TP3 (R:R ile), her kriter ✅/❌ ile ayrı ayrı
+çekirdek/onay bölümlerinde gösterilir. Parametreler `ict_scanner.py`
+başında ayarlanabilir: `CORE_CRITERIA`, `CONFIRM_CRITERIA`,
+`MIN_CONFIRMATIONS`, `LONDON_KZ`, `NY_KZ`, `DISPLACEMENT_BODY_MULT`,
+`LIQUIDITY_SWEEP_LOOKBACK`, `OTE_SWING_LOOKBACK`.
 
 ## Sınırlamalar
 - OB/FVG/BOS tespiti basitleştirilmiş bir yaklaşımdır, TradingView'daki Pine

@@ -1,17 +1,20 @@
 """
 ICT Checklist tarayıcısı — mevcut HTF/LTF Order Block stratejisinden (scanner.py)
 BAĞIMSIZ, ikinci bir strateji. Aynı sembolleri tarar ama farklı bir metodoloji
-kullanır: 5 ICT kriterini otomatik puanlar, skoru >= ICT_MIN_SCORE olan
-kurulumlarda Telegram'a ayrı, kendi formatında bir uyarı gönderir.
+kullanır: "Altın Kural" — 3 çekirdek kriterin HEPSİ + 2 onay kriterinden EN AZ
+1'i sağlanırsa (toplam skor >= 4/5) Telegram'a ayrı, kendi formatında bir
+uyarı gönderir.
 
-Kriterler:
-1. HTF Bias Uyumu     — LTF'deki son yapı kırılımı, günlük trend yönüyle aynı mı?
-2. Kill Zone Zamanı   — kırılım London (07-10 UTC) veya New York (12-15 UTC)
+Çekirdek (hepsi gerekli):
+1. Kill Zone Zamanı   — kırılım London (07-10 UTC) veya New York (12-15 UTC)
                         kill zone'una denk geldi mi?
-3. Liquidity Sweep    — en son Asya seansı (00-07 UTC) tepe/dibi süpürülüp
+2. Liquidity Sweep    — en son Asya seansı (00-07 UTC) tepe/dibi süpürülüp
                         geri dönüldü mü?
-4. MSS / Displacement — kırılım mumunun gövdesi, öncekilere göre belirgin
+3. MSS / Displacement — kırılım mumunun gövdesi, öncekilere göre belirgin
                         büyük mü (gerçek bir "displacement" mi)?
+
+Onaylar (en az 1 gerekli):
+4. HTF Bias Uyumu     — LTF'deki son yapı kırılımı, günlük trend yönüyle aynı mı?
 5. FVG / OTE Teması   — fiyat taze bir FVG içinde mi veya son bacağın
                         0.618-0.786 (OTE) retracement bölgesinde mi?
 
@@ -45,7 +48,12 @@ from scanner import (
 )
 
 ICT_STATE_FILE = os.path.join(os.path.dirname(__file__), "ict_state.json")
-ICT_MIN_SCORE = 3  # 5 kriterden en az kaçı sağlanırsa uyarı gönderilsin
+
+# Altın Kural: 3 çekirdek kriterin HEPSİ sağlanmalı, buna ek olarak 2 onay
+# kriterinden EN AZ 1'i sağlanmalı (toplam skor en az 4/5).
+CORE_CRITERIA = ["killzone", "liquidity_sweep", "mss_displacement"]
+CONFIRM_CRITERIA = ["htf_bias", "fvg_ote"]
+MIN_CONFIRMATIONS = 1
 
 LONDON_KZ = (7, 10)   # UTC saat aralığı
 NY_KZ = (12, 15)      # UTC saat aralığı
@@ -54,13 +62,13 @@ DISPLACEMENT_BODY_MULT = 1.5     # kırılım mumunun gövdesi, ortalamanın ka�
 LIQUIDITY_SWEEP_LOOKBACK = 6     # kaç 4H mumu geriye bakılsın
 OTE_SWING_LOOKBACK = 30          # OTE için kaç 4H mumluk bacağa bakılsın
 
-CRITERIA_LABELS = [
-    ("htf_bias", "HTF Bias Uyumu (günlük trendle aynı yön)"),
-    ("killzone", "Kill Zone Zamanlaması (London/NY)"),
-    ("liquidity_sweep", "Liquidity Sweep (Asya/önceki seans likiditesi)"),
-    ("mss_displacement", "MSS / Displacement (güçlü kırılım mumu)"),
-    ("fvg_ote", "FVG / OTE Teması (0.618-0.786 veya FVG)"),
-]
+CRITERIA_LABELS = {
+    "htf_bias": "HTF Bias Uyumu (günlük trendle aynı yön)",
+    "killzone": "Kill Zone Zamanlaması (London/NY)",
+    "liquidity_sweep": "Liquidity Sweep (Asya/önceki seans likiditesi)",
+    "mss_displacement": "MSS / Displacement (güçlü kırılım mumu)",
+    "fvg_ote": "FVG / OTE Teması (0.618-0.786 veya FVG)",
+}
 
 
 def find_last_break(ltf_results, confirm_window):
@@ -201,6 +209,9 @@ def evaluate_symbol_ict(symbol):
         "fvg_ote": compute_fvg_or_ote(ltf_candles, direction),
     }
     score = sum(criteria.values())
+    core_ok = all(criteria[k] for k in CORE_CRITERIA)
+    confirm_count = sum(criteria[k] for k in CONFIRM_CRITERIA)
+    qualifies = core_ok and confirm_count >= MIN_CONFIRMATIONS
 
     # SL/TP hesaplaması: scanner.py'daki ana stratejiyle aynı yöntem —
     # kırılımın oluşturduğu order block'un ötesine SL, geçmiş likidite
@@ -227,6 +238,7 @@ def evaluate_symbol_ict(symbol):
         "direction": direction,
         "score": score,
         "criteria": criteria,
+        "qualifies": qualifies,
         "price": close,
         "sl": sl,
         "tp1": tp1, "tp2": tp2, "tp3": tp3,
@@ -254,10 +266,16 @@ def format_ict_message(symbol, result):
         f"TP2: {_fmt_tp(result['tp2'], result['rr2'])}",
         f"TP3: {_fmt_tp(result['tp3'], result['rr3'])}",
         "",
+        "<b>Çekirdek (hepsi sağlanmalı):</b>",
     ]
-    for key, label in CRITERIA_LABELS:
+    for key in CORE_CRITERIA:
         mark = "✅" if result["criteria"][key] else "❌"
-        lines.append(f"{mark} {label}")
+        lines.append(f"{mark} {CRITERIA_LABELS[key]}")
+    lines.append("")
+    lines.append("<b>Onaylar (en az 1 sağlanmalı):</b>")
+    for key in CONFIRM_CRITERIA:
+        mark = "✅" if result["criteria"][key] else "❌"
+        lines.append(f"{mark} {CRITERIA_LABELS[key]}")
     lines.append("")
     lines.append(
         "⚠️ Bu, diğer HTF/LTF Order Block stratejisinden BAĞIMSIZ ayrı bir "
@@ -291,7 +309,7 @@ def main():
             print(f"[ICT][{symbol}] hata: {e}")
             continue
 
-        if result is None or result["score"] < ICT_MIN_SCORE:
+        if result is None or not result["qualifies"]:
             continue
 
         sym_state = state.get(symbol, {})
