@@ -28,6 +28,9 @@ from scanner import (
     get_usdt_symbols,
     fetch_klines,
     compute_structure,
+    compute_atr,
+    collect_pivot_levels,
+    pick_tp_levels,
     send_telegram,
     PIVOT_LEN_HTF,
     PIVOT_LEN_LTF,
@@ -36,6 +39,8 @@ from scanner import (
     LTF_INTERVAL,
     HTF_LIMIT,
     LTF_LIMIT,
+    LIQUIDITY_LOOKBACK,
+    SL_ATR_MULT,
     REQUEST_SLEEP,
 )
 
@@ -186,6 +191,7 @@ def evaluate_symbol_ict(symbol):
 
     htf_bias = compute_htf_bias(htf_candles)
     break_candle = ltf_candles[break_idx]
+    break_result = ltf_results[break_idx]
 
     criteria = {
         "htf_bias": htf_bias == direction if htf_bias else False,
@@ -196,13 +202,44 @@ def evaluate_symbol_ict(symbol):
     }
     score = sum(criteria.values())
 
+    # SL/TP hesaplaması: scanner.py'daki ana stratejiyle aynı yöntem —
+    # kırılımın oluşturduğu order block'un ötesine SL, geçmiş likidite
+    # (pivot tepe/dip) seviyelerine TP1/TP2/TP3.
+    close = ltf_candles[-1]["close"]
+    atr = compute_atr(ltf_candles, 14)
+    ltf_highs = collect_pivot_levels(ltf_candles[-(LIQUIDITY_LOOKBACK + PIVOT_LEN_LTF):], PIVOT_LEN_LTF, "high")
+    ltf_lows = collect_pivot_levels(ltf_candles[-(LIQUIDITY_LOOKBACK + PIVOT_LEN_LTF):], PIVOT_LEN_LTF, "low")
+    htf_highs = collect_pivot_levels(htf_candles, PIVOT_LEN_HTF, "high")
+    htf_lows = collect_pivot_levels(htf_candles, PIVOT_LEN_HTF, "low")
+
+    if direction == "long":
+        sl = (break_result["ob_bot"] if break_result["ob_dir"] == 1 and break_result["ob_bot"] is not None
+              else break_candle["low"]) - atr * SL_ATR_MULT
+        tp1, tp2, tp3 = pick_tp_levels(close, ltf_highs, htf_highs, "long")
+        rrs = [(tp - close) / (close - sl) if (tp is not None and close > sl) else None for tp in (tp1, tp2, tp3)]
+    else:
+        sl = (break_result["ob_top"] if break_result["ob_dir"] == -1 and break_result["ob_top"] is not None
+              else break_candle["high"]) + atr * SL_ATR_MULT
+        tp1, tp2, tp3 = pick_tp_levels(close, ltf_lows, htf_lows, "short")
+        rrs = [(close - tp) / (sl - close) if (tp is not None and sl > close) else None for tp in (tp1, tp2, tp3)]
+
     return {
         "direction": direction,
         "score": score,
         "criteria": criteria,
-        "price": ltf_candles[-1]["close"],
+        "price": close,
+        "sl": sl,
+        "tp1": tp1, "tp2": tp2, "tp3": tp3,
+        "rr1": rrs[0], "rr2": rrs[1], "rr3": rrs[2],
         "break_close_time": break_candle["close_time"],
     }
+
+
+def _fmt_tp(tp, rr):
+    if tp is None:
+        return "n/a (yeterli likidite seviyesi bulunamadı)"
+    rr_text = f"{rr:.2f}" if rr else "n/a"
+    return f"{tp:.6g}  (R:R ≈ {rr_text})"
 
 
 def format_ict_message(symbol, result):
@@ -211,7 +248,11 @@ def format_ict_message(symbol, result):
     lines = [
         f"🧭 <b>ICT Checklist Sinyali</b> — {emoji} {symbol} {direction.upper()} "
         f"(Skor: {result['score']}/5)",
-        f"Fiyat: {result['price']:.6g}",
+        f"Giriş: {result['price']:.6g}",
+        f"SL: {result['sl']:.6g}",
+        f"TP1: {_fmt_tp(result['tp1'], result['rr1'])}",
+        f"TP2: {_fmt_tp(result['tp2'], result['rr2'])}",
+        f"TP3: {_fmt_tp(result['tp3'], result['rr3'])}",
         "",
     ]
     for key, label in CRITERIA_LABELS:
