@@ -5,18 +5,25 @@ kullanır: "Altın Kural" — 3 çekirdek kriterin HEPSİ + 2 onay kriterinden E
 1'i sağlanırsa (toplam skor >= 4/5) Telegram'a ayrı, kendi formatında bir
 uyarı gönderir.
 
+Yapı kırılımı 4H'de tespit edilir; ancak likidite avı, displacement ve giriş
+tetiği 4H çözünürlükte ölçülemeyeceği için 15 DAKİKALIK veride, gerçek
+saatleriyle aranır. Kill zone saatleri New York yerel saatiyle tanımlıdır,
+böylece yaz/kış saati (EST/EDT) geçişinde pencere kaymaz.
+
 Çekirdek (hepsi gerekli):
-1. Kill Zone Zamanı   — kırılım London (07-10 UTC) veya New York (12-15 UTC)
-                        kill zone'una denk geldi mi?
-2. Liquidity Sweep    — en son Asya seansı (00-07 UTC) tepe/dibi süpürülüp
-                        geri dönüldü mü?
-3. MSS / Displacement — kırılım mumunun gövdesi, öncekilere göre belirgin
-                        büyük mü (gerçek bir "displacement" mi)?
+1. Kill Zone Zamanı   — likidite avı VE displacement, London (02-05 NY) veya
+                        New York (07-10 NY) kill zone penceresi İÇİNDE mi
+                        gerçekleşti? (Mumun ne zaman açıldığı değil, hareketin
+                        ne zaman olduğu önemlidir.)
+2. Liquidity Sweep    — Asya seansı (20:00-00:00 NY) tepe/dibi süpürülüp
+                        geri dönüldü mü? (Judas swing)
+3. MSS / Displacement — sweep'ten SONRA, gövdesi ortalamanın belirgin üstünde
+                        yönlü bir kırılım mumu oluştu mu?
 
 Onaylar (en az 1 gerekli):
-4. HTF Bias Uyumu     — LTF'deki son yapı kırılımı, günlük trend yönüyle aynı mı?
-5. FVG / OTE Teması   — fiyat taze bir FVG içinde mi veya son bacağın
-                        0.618-0.786 (OTE) retracement bölgesinde mi?
+4. HTF Bias Uyumu     — 4H'deki son yapı kırılımı, günlük trend yönüyle aynı mı?
+5. FVG / OTE Teması   — fiyat displacement bacağının FVG'sine veya
+                        0.618-0.786 (OTE) bölgesine geri çekildi mi?
 
 Bu basitleştirilmiş, otomatikleştirilebilir yaklaşımlardır — ICT'nin tam
 metodolojisinin birebir yerine geçmez, yatırım tavsiyesi değildir.
@@ -25,7 +32,8 @@ metodolojisinin birebir yerine geçmez, yatırım tavsiyesi değildir.
 import json
 import os
 import time
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 from scanner import (
     get_usdt_symbols,
@@ -56,19 +64,27 @@ CORE_CRITERIA = ["killzone", "liquidity_sweep", "mss_displacement"]
 CONFIRM_CRITERIA = ["htf_bias", "fvg_ote"]
 MIN_CONFIRMATIONS = 1
 
-LONDON_KZ = (7, 10)   # UTC saat aralığı
-NY_KZ = (12, 15)      # UTC saat aralığı
+# Kill zone'lar New York yerel saatiyle tanımlıdır (ICT standardı) — böylece
+# yaz/kış saati (EST/EDT) geçişinde pencereler UTC'de kaymaz.
+NY_TZ = ZoneInfo("America/New_York")
+LONDON_KZ_NY = (2, 5)       # 02:00-05:00 NY saati
+NY_KZ_NY = (7, 10)          # 07:00-10:00 NY saati
+ASIAN_SESSION_NY = (20, 24)  # 20:00-00:00 NY saati — avlanacak likiditeyi tanımlar
 
-DISPLACEMENT_BODY_MULT = 1.5     # kırılım mumunun gövdesi, ortalamanın kaç katı olmalı
-LIQUIDITY_SWEEP_LOOKBACK = 6     # kaç 4H mumu geriye bakılsın
-OTE_SWING_LOOKBACK = 30          # OTE için kaç 4H mumluk bacağa bakılsın
+# Likidite avı / displacement / giriş tetiği 4H çözünürlükte ölçülemez;
+# bunlar 15 dakikalık veride, gerçek saatleriyle aranır.
+LTF_KZ_INTERVAL = "15m"
+LTF_KZ_LIMIT = 500           # ~5 gün
+KZ_LOOKBACK_CANDLES = 192    # son 48 saat (15dk x 192)
+
+DISPLACEMENT_BODY_MULT = 1.5     # displacement mumunun gövdesi, ortalamanın kaç katı olmalı
 
 CRITERIA_LABELS = {
     "htf_bias": "HTF Bias Uyumu (günlük trendle aynı yön)",
-    "killzone": "Kill Zone Zamanlaması (London/NY)",
-    "liquidity_sweep": "Liquidity Sweep (Asya/önceki seans likiditesi)",
-    "mss_displacement": "MSS / Displacement (güçlü kırılım mumu)",
-    "fvg_ote": "FVG / OTE Teması (0.618-0.786 veya FVG)",
+    "killzone": "Kill Zone: sweep VE displacement KZ içinde (15dk)",
+    "liquidity_sweep": "Liquidity Sweep (Asya seansı likiditesi, 15dk)",
+    "mss_displacement": "MSS / Displacement (sweep sonrası güçlü mum, 15dk)",
+    "fvg_ote": "FVG / OTE Teması (displacement bacağı, 15dk)",
 }
 
 
@@ -104,56 +120,100 @@ def compute_htf_bias(htf_candles):
     return "long" if last_bull_idx > last_bear_idx else "short"
 
 
-def in_killzone(open_time_ms):
-    """4H mumun London veya NY kill zone'u ile kesiştiğini kontrol eder."""
-    dt = datetime.fromtimestamp(open_time_ms / 1000, tz=timezone.utc)
-    start_hour = dt.hour
-    end_hour = start_hour + 4
-
-    def overlaps(zone):
-        z0, z1 = zone
-        return not (end_hour <= z0 or start_hour >= z1)
-
-    return overlaps(LONDON_KZ) or overlaps(NY_KZ)
+def to_ny(ms):
+    """Epoch (ms) -> New York yerel saati. Yaz/kış saati (EST/EDT) otomatik."""
+    return datetime.fromtimestamp(ms / 1000, tz=timezone.utc).astimezone(NY_TZ)
 
 
-def get_latest_asian_range(ltf_candles):
-    """En son (bugünkü veya bulunamazsa dünkü) Asya seansı (00-07 UTC) tepe/dibini döndürür."""
-    if not ltf_candles:
+def in_killzone(ms):
+    """Verilen ANIN London veya NY kill zone penceresinde olup olmadığı.
+    Saatler New York yerel saatiyle tanımlıdır (ICT standardı), böylece
+    yaz/kış saati geçişinde pencere kaymaz."""
+    dt = to_ny(ms)
+    h = dt.hour + dt.minute / 60
+    return (LONDON_KZ_NY[0] <= h < LONDON_KZ_NY[1]) or (NY_KZ_NY[0] <= h < NY_KZ_NY[1])
+
+
+def get_asian_range(m15_candles):
+    """En son tamamlanmış Asya seansının (NY saatiyle 20:00-24:00) tepe/dibi.
+    Bu seans, London kill zone'unda avlanacak likiditeyi tanımlar."""
+    sessions = {}
+    for c in m15_candles:
+        dt = to_ny(c["open_time"])
+        if ASIAN_SESSION_NY[0] <= dt.hour < ASIAN_SESSION_NY[1]:
+            sessions.setdefault(dt.date(), []).append(c)
+    if not sessions:
         return None, None
-    latest_dt = datetime.fromtimestamp(ltf_candles[-1]["close_time"] / 1000, tz=timezone.utc)
-    for day_offset in (0, 1):
-        target_date = (latest_dt - timedelta(days=day_offset)).date()
-        session_candles = [
-            c for c in ltf_candles
-            if datetime.fromtimestamp(c["open_time"] / 1000, tz=timezone.utc).date() == target_date
-            and datetime.fromtimestamp(c["open_time"] / 1000, tz=timezone.utc).hour in (0, 4)
-        ]
-        if session_candles:
-            return max(c["high"] for c in session_candles), min(c["low"] for c in session_candles)
-    return None, None
+    latest_day = max(sessions)
+    session = sessions[latest_day]
+    return max(c["high"] for c in session), min(c["low"] for c in session)
 
 
-def compute_liquidity_sweep(ltf_candles, direction):
-    asian_high, asian_low = get_latest_asian_range(ltf_candles)
-    if asian_high is None:
+def find_kz_setup(m15_candles, direction, asian_high, asian_low):
+    """ICT akışını 15 dakikalık veride arar:
+      1) Likidite avı (Judas swing): Asya tepesi/dibi süpürülüp geri dönülmesi
+      2) Ardından displacement: yönlü, gövdesi belirgin büyük kırılım mumu
+    (sweep_candle, displacement_candle) döner; bulunamayan None olur.
+    Saat kontrolü yapılmaz — çağıran taraf in_killzone ile denetler."""
+    if asian_high is None or asian_low is None:
+        return None, None
+
+    recent = m15_candles[-KZ_LOOKBACK_CANDLES:]
+    if len(recent) < 25:
+        return None, None
+
+    sweep_idx = None
+    for i in range(len(recent) - 1, -1, -1):
+        c = recent[i]
+        if direction == "long" and c["low"] < asian_low and c["close"] > asian_low:
+            sweep_idx = i
+            break
+        if direction == "short" and c["high"] > asian_high and c["close"] < asian_high:
+            sweep_idx = i
+            break
+    if sweep_idx is None:
+        return None, None
+
+    for j in range(sweep_idx + 1, len(recent)):
+        c = recent[j]
+        prior = recent[max(0, j - 20):j]
+        bodies = [abs(p["close"] - p["open"]) for p in prior]
+        avg_body = sum(bodies) / len(bodies) if bodies else 0
+        body = abs(c["close"] - c["open"])
+        directional = (c["close"] > c["open"]) if direction == "long" else (c["close"] < c["open"])
+        if directional and avg_body > 0 and body >= DISPLACEMENT_BODY_MULT * avg_body:
+            return recent[sweep_idx], c
+
+    return recent[sweep_idx], None
+
+
+def compute_fvg_or_ote_ltf(m15_candles, direction, sweep_candle, disp_candle):
+    """Displacement bacağının FVG'si veya OTE (0.618-0.786) bölgesine
+    geri çekilme olmuş mu? ICT'de giriş tetiği burada aranır."""
+    if disp_candle is None or sweep_candle is None:
         return False
-    recent = ltf_candles[-LIQUIDITY_SWEEP_LOOKBACK:]
-    last_close = ltf_candles[-1]["close"]
+    current = m15_candles[-1]["close"]
+
+    idx = next((i for i, c in enumerate(m15_candles) if c["open_time"] == disp_candle["open_time"]), None)
+    if idx is not None and 1 <= idx < len(m15_candles) - 1:
+        before, after = m15_candles[idx - 1], m15_candles[idx + 1]
+        if direction == "long" and after["low"] > before["high"]:
+            if before["high"] <= current <= after["low"]:
+                return True
+        if direction == "short" and after["high"] < before["low"]:
+            if after["high"] <= current <= before["low"]:
+                return True
+
     if direction == "long":
-        swept = any(c["low"] < asian_low for c in recent)
-        return swept and last_close > asian_low
+        leg_low, leg_high = sweep_candle["low"], disp_candle["high"]
     else:
-        swept = any(c["high"] > asian_high for c in recent)
-        return swept and last_close < asian_high
-
-
-def compute_mss_displacement(ltf_candles, break_idx):
-    body = abs(ltf_candles[break_idx]["close"] - ltf_candles[break_idx]["open"])
-    prior = ltf_candles[max(0, break_idx - 20):break_idx]
-    bodies = [abs(c["close"] - c["open"]) for c in prior]
-    avg_body = sum(bodies) / len(bodies) if bodies else 0
-    return avg_body > 0 and body >= DISPLACEMENT_BODY_MULT * avg_body
+        leg_high, leg_low = sweep_candle["high"], disp_candle["low"]
+    rng = leg_high - leg_low
+    if rng <= 0:
+        return False
+    if direction == "long":
+        return leg_high - 0.786 * rng <= current <= leg_high - 0.618 * rng
+    return leg_low + 0.618 * rng <= current <= leg_low + 0.786 * rng
 
 
 def compute_fvg_or_ote(ltf_candles, direction):
@@ -198,16 +258,33 @@ def evaluate_symbol_ict(symbol):
     if direction is None:
         return None  # skorlanacak bir yapı kırılımı yok
 
+    # Likidite avı, displacement ve giriş tetiği 4H'de ölçülemez —
+    # gerçek saatleriyle 15 dakikalık veride aranır.
+    m15_candles = fetch_klines(symbol, LTF_KZ_INTERVAL, LTF_KZ_LIMIT)
+    time.sleep(REQUEST_SLEEP)
+
+    asian_high, asian_low = get_asian_range(m15_candles)
+    sweep_candle, disp_candle = find_kz_setup(m15_candles, direction, asian_high, asian_low)
+
+    # Kill zone kriteri: mumun ne zaman AÇILDIĞI değil, likidite avının ve
+    # displacement'ın KZ penceresi içinde GERÇEKLEŞMİŞ olması aranır.
+    killzone_ok = (
+        sweep_candle is not None
+        and disp_candle is not None
+        and in_killzone(sweep_candle["open_time"])
+        and in_killzone(disp_candle["open_time"])
+    )
+
     htf_bias = compute_htf_bias(htf_candles)
     break_candle = ltf_candles[break_idx]
     break_result = ltf_results[break_idx]
 
     criteria = {
         "htf_bias": htf_bias == direction if htf_bias else False,
-        "killzone": in_killzone(break_candle["open_time"]),
-        "liquidity_sweep": compute_liquidity_sweep(ltf_candles, direction),
-        "mss_displacement": compute_mss_displacement(ltf_candles, break_idx),
-        "fvg_ote": compute_fvg_or_ote(ltf_candles, direction),
+        "killzone": killzone_ok,
+        "liquidity_sweep": sweep_candle is not None,
+        "mss_displacement": disp_candle is not None,
+        "fvg_ote": compute_fvg_or_ote_ltf(m15_candles, direction, sweep_candle, disp_candle),
     }
     score = sum(criteria.values())
     core_ok = all(criteria[k] for k in CORE_CRITERIA)
@@ -249,6 +326,8 @@ def evaluate_symbol_ict(symbol):
         "tp1": tp1, "tp2": tp2, "tp3": tp3,
         "rr1": rrs[0], "rr2": rrs[1], "rr3": rrs[2],
         "break_close_time": break_candle["close_time"],
+        "sweep_time": sweep_candle["open_time"] if sweep_candle else None,
+        "disp_time": disp_candle["open_time"] if disp_candle else None,
     }
 
 
@@ -281,6 +360,11 @@ def format_ict_message(symbol, result):
     for key in CONFIRM_CRITERIA:
         mark = "✅" if result["criteria"][key] else "❌"
         lines.append(f"{mark} {CRITERIA_LABELS[key]}")
+    lines.append("")
+    if result.get("sweep_time"):
+        lines.append(f"Likidite avı: {to_ny(result['sweep_time']).strftime('%Y-%m-%d %H:%M')} NY")
+    if result.get("disp_time"):
+        lines.append(f"Displacement: {to_ny(result['disp_time']).strftime('%Y-%m-%d %H:%M')} NY")
     lines.append("")
     lines.append(
         "⚠️ Bu, diğer HTF/LTF Order Block stratejisinden BAĞIMSIZ ayrı bir "

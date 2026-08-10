@@ -104,25 +104,35 @@ mantığıyla çalışır: 5 kriter **çekirdek** ve **onay** olarak ikiye ayrı
 uyarı sadece çekirdeğin tamamı + onaylardan en az biri sağlandığında gider
 (toplam skor en az 4/5):
 
+Yapı kırılımı 4H'de bulunur; ancak **likidite avı, displacement ve giriş
+tetiği 15 dakikalık veride, gerçek saatleriyle** aranır — çünkü bir kill zone
+penceresi 3 saattir ve 4H mumla ölçülemez. Kill zone saatleri **New York yerel
+saatiyle** tanımlıdır, böylece yaz/kış saati (EST/EDT) geçişinde pencere UTC'de
+kaymaz.
+
 **Çekirdek (hepsi sağlanmalı):**
-1. **Kill Zone Zamanlaması** — kırılım mumu London (07-10 UTC) veya New York
-   (12-15 UTC) kill zone'u ile kesişiyor mu?
-2. **Liquidity Sweep** — en son Asya seansı (00-07 UTC) tepe/dibi süpürülüp
-   fiyat geri döndü mü?
-3. **MSS / Displacement** — kırılım mumunun gövdesi, önceki 20 muma göre en
-   az `DISPLACEMENT_BODY_MULT` (1.5x) büyük mü?
+1. **Kill Zone Zamanlaması** — likidite avı **ve** displacement, London
+   (02:00-05:00 NY) veya New York (07:00-10:00 NY) penceresi **içinde**
+   gerçekleşti mi? Mumun ne zaman açıldığı değil, hareketin ne zaman olduğu
+   ölçülür.
+2. **Liquidity Sweep** — Asya seansının (20:00-00:00 NY) tepe/dibi süpürülüp
+   fiyat geri döndü mü? (Judas swing)
+3. **MSS / Displacement** — sweep'ten sonra, gövdesi önceki 20 mumun
+   ortalamasının en az `DISPLACEMENT_BODY_MULT` (1.5x) katı olan yönlü bir
+   kırılım mumu oluştu mu?
 
 **Onaylar (en az 1 sağlanmalı):**
-4. **HTF Bias Uyumu** — LTF'deki (4H) son yapı kırılımının yönü, günlük
-   grafikteki son yapı kırılımıyla (bias) aynı mı?
-5. **FVG / OTE Teması** — fiyat taze bir FVG içinde mi veya son bacağın
-   0.618-0.786 (OTE) retracement bölgesinde mi?
+4. **HTF Bias Uyumu** — 4H'deki son yapı kırılımının yönü, günlük grafikteki
+   son yapı kırılımıyla (bias) aynı mı?
+5. **FVG / OTE Teması** — fiyat displacement bacağının FVG'sine veya
+   0.618-0.786 (OTE) bölgesine geri çekildi mi?
 
 Uyarı mesajında SL/TP1/TP2/TP3 (R:R ile), her kriter ✅/❌ ile ayrı ayrı
-çekirdek/onay bölümlerinde gösterilir. Parametreler `ict_scanner.py`
-başında ayarlanabilir: `CORE_CRITERIA`, `CONFIRM_CRITERIA`,
-`MIN_CONFIRMATIONS`, `LONDON_KZ`, `NY_KZ`, `DISPLACEMENT_BODY_MULT`,
-`LIQUIDITY_SWEEP_LOOKBACK`, `OTE_SWING_LOOKBACK`.
+çekirdek/onay bölümlerinde, ayrıca sweep ve displacement'ın NY saatiyle
+gerçekleşme zamanı gösterilir. Parametreler `ict_scanner.py` başında
+ayarlanabilir: `CORE_CRITERIA`, `CONFIRM_CRITERIA`, `MIN_CONFIRMATIONS`,
+`LONDON_KZ_NY`, `NY_KZ_NY`, `ASIAN_SESSION_NY`, `LTF_KZ_INTERVAL`,
+`KZ_LOOKBACK_CANDLES`, `DISPLACEMENT_BODY_MULT`.
 
 ## Sınırlamalar
 - OB/FVG/BOS tespiti basitleştirilmiş bir yaklaşımdır, TradingView'daki Pine
@@ -133,7 +143,8 @@ başında ayarlanabilir: `CORE_CRITERIA`, `CONFIRM_CRITERIA`,
 - Kaldıraç/pozisyon önerileri R:R'a göre ölçeklenir ama yine de varsayımlara
   dayanır; kendi sermayeni ve risk toleransını mutlaka göz önünde bulundur.
 - ICT checklist kriterleri basitleştirilmiş, otomatikleştirilebilir
-  yaklaşımlardır — ICT'nin tam metodolojisinin birebir yerine geçmez
-  (özellikle kill zone ve OTE tespiti 4H çözünürlükte yaklaşıktır).
+  yaklaşımlardır — ICT'nin tam metodolojisinin birebir yerine geçmez.
+  Sweep/displacement/giriş 15 dakikalık veride ölçülür; ICT'nin önerdiği
+  1M-5M çözünürlükten daha kabadır.
 - Bu bir yatırım tavsiyesi değildir; gerçek parayla kullanmadan önce sinyalleri
   gözle/backtest ile doğrula.
