@@ -20,6 +20,19 @@
   "METUSDT": {
     "long": 1786204799999
   },
+  "OPGUSDT": {
+    "short": {
+      "bos_close_time": 1786348799999,
+      "entry": 0.0947,
+      "last_checked_close_time": 1786348799999,
+      "leverage": 3,
+      "sl": 0.09933535714285714,
+      "status": "open",
+      "tp1": 0.0939,
+      "tp2": 0.092,
+      "tp3": 0.0916
+    }
+  },
   "ORCAUSDT": {
     "short": 1786118399999
   },
@@ -37,6 +50,19 @@
   },
   "TURBOUSDT": {
     "short": 1786147199999
+  },
+  "TUSDT": {
+    "short": {
+      "bos_close_time": 1786363199999,
+      "entry": 0.00362,
+      "last_checked_close_time": 1786363199999,
+      "leverage": 3,
+      "sl": 0.0037294285714285715,
+      "status": "open",
+      "tp1": 0.00356,
+      "tp2": 0.00355,
+      "tp3": 0.00349
+    }
   },
   "XUSDUSDT": {
     "short": 1786175999999
