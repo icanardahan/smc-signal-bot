@@ -7,10 +7,11 @@ strateji**:
    Block/FVG bölgesine fiyat geri döndüğünde 4H'de BOS/CHoCH + taze FVG onayı
    gelirse Long/Short sinyali (giriş, SL, TP1/2/3, kaldıraç, pozisyon
    büyüklüğü) gönderir, açtığı pozisyonları SL/TP'ye kadar izler.
-2. **ICT Checklist stratejisi** (`ict_scanner.py`): HTF Bias, Kill Zone,
-   Liquidity Sweep, MSS/Displacement, FVG/OTE olmak üzere 5 ICT kriterini
-   otomatik puanlar; skoru 3/5 veya üzerinde olan kurulumlarda ✅/❌
-   checklist'iyle birlikte uyarı gönderir.
+2. **ICT 2022 Trading Model** (`ict_scanner.py`): Michael Huddleston'ın 2022
+   modelinin otomatik uygulaması — daily bias, NY gece yarısı → seans açılışı
+   aralığının likidite süpürmesi, 5 dakikalık grafikte MSS + displacement ve
+   PD Array (FVG/OTE) girişi. SL süpürülen ekstremin ötesine, TP aralığın
+   karşı tarafına konur; 1:3 altı R:R reddedilir.
 
 İkisi de birbirinden bağımsız çalışır, aynı Telegram sohbetine ayrı ayrı
 etiketlenmiş mesajlar gönderir. GitHub Actions üzerinde her 4 saatte bir
@@ -113,41 +114,53 @@ eder:
 - TP3'e ulaşan, SL'e takılan veya zaman aşımına uğrayan pozisyonlar kapanmış
   sayılır, artık izlenmez ve o sembol+yönde yeni sinyal alınabilir.
 
-## ICT Checklist stratejisi (ict_scanner.py)
-`scanner.py`'daki stratejiden bağımsız, ikinci bir yöntem. "Altın Kural"
-mantığıyla çalışır: 5 kriter **çekirdek** ve **onay** olarak ikiye ayrılır,
-uyarı sadece çekirdeğin tamamı + onaylardan en az biri sağlandığında gider
-(toplam skor en az 4/5):
+## ICT 2022 Trading Model (ict_scanner.py)
+`scanner.py`'daki stratejiden bağımsız ikinci yöntem. Michael Huddleston'ın
+"Complete ICT Trading Strategy – 2022 Trading Model" dokümanının otomatik
+uygulamasıdır. Tüm saatler **New York yerel saatiyle** hesaplanır (zoneinfo),
+böylece yaz/kış saati (EST/EDT) geçişinde pencereler UTC'de kaymaz.
 
-Yapı kırılımı 4H'de bulunur; ancak **likidite avı, displacement ve giriş
-tetiği 15 dakikalık veride, gerçek saatleriyle** aranır — çünkü bir kill zone
-penceresi 3 saattir ve 4H mumla ölçülemez. Kill zone saatleri **New York yerel
-saatiyle** tanımlıdır, böylece yaz/kış saati (EST/EDT) geçişinde pencere UTC'de
-kaymaz.
+**Modelin akışı:**
+1. **Daily bias** günlük grafikten belirlenir. Net bias yoksa işlem aranmaz.
+2. **Aralık işaretlenir** — NY gece yarısı açılışından (00:00) seans açılışına:
+   - London kurulumu → 00:00-03:00 NY
+   - New York kurulumu → 00:00-08:00 NY
+3. **Liquidity Sweep** — seans açılınca aralığın bias'a TERS tarafı süpürülür
+   (bullish bias → aralık dibi süpürülür). Arama her seansın kendi penceresiyle
+   sınırlıdır (London 03:00-08:00, NY 08:00-12:00), böylece iki kurulum
+   birbirine karışmaz.
+4. **MSS + Displacement** — 5 dakikalık grafikte, süpürme ekstreminden SONRA
+   oluşan kısa vadeli swing'in, gövdesi önceki 20 mumun ortalamasının en az
+   `DISPLACEMENT_BODY_MULT` (1.5x) katı olan bir mumla kırılması.
+5. **PD Array girişi** — displacement'ın bıraktığı FVG'ye veya bacağın
+   0.618-0.786 (OTE) bölgesine fiyatın geri dönmesi.
 
-**Çekirdek (hepsi sağlanmalı):**
-1. **Kill Zone Zamanlaması** — likidite avı **ve** displacement, London
-   (02:00-05:00 NY) veya New York (07:00-10:00 NY) penceresi **içinde**
-   gerçekleşti mi? Mumun ne zaman açıldığı değil, hareketin ne zaman olduğu
-   ölçülür.
-2. **Liquidity Sweep** — Asya seansının (20:00-00:00 NY) tepe/dibi süpürülüp
-   fiyat geri döndü mü? (Judas swing)
-3. **MSS / Displacement** — sweep'ten sonra, gövdesi önceki 20 mumun
-   ortalamasının en az `DISPLACEMENT_BODY_MULT` (1.5x) katı olan yönlü bir
-   kırılım mumu oluştu mu?
+**Kriterler** (kullanıcı checklist yapısı korunur — 3 çekirdek + en az 1 tetik):
 
-**Onaylar (en az 1 sağlanmalı):**
-4. **HTF Bias Uyumu** — 4H'deki son yapı kırılımının yönü, günlük grafikteki
-   son yapı kırılımıyla (bias) aynı mı?
-5. **FVG / OTE Teması** — fiyat displacement bacağının FVG'sine veya
-   0.618-0.786 (OTE) bölgesine geri çekildi mi?
+Çekirdek (hepsi şart):
+1. **Kill Zone** — sweep ve MSS, London (02:00-05:00 NY) veya NY (07:00-10:00 NY)
+   penceresi içinde. NY lunch (12:00-14:00) ranging olduğu için hariç tutulur.
+2. **Liquidity Sweep** — aralığın likiditesi alındı.
+3. **MSS + Displacement** — bias yönünde yapı kırılımı gerçekleşti.
 
-Uyarı mesajında SL/TP1/TP2/TP3 (R:R ile), her kriter ✅/❌ ile ayrı ayrı
-çekirdek/onay bölümlerinde, ayrıca sweep ve displacement'ın NY saatiyle
-gerçekleşme zamanı gösterilir. Parametreler `ict_scanner.py` başında
-ayarlanabilir: `CORE_CRITERIA`, `CONFIRM_CRITERIA`, `MIN_CONFIRMATIONS`,
-`LONDON_KZ_NY`, `NY_KZ_NY`, `ASIAN_SESSION_NY`, `LTF_KZ_INTERVAL`,
-`KZ_LOOKBACK_CANDLES`, `DISPLACEMENT_BODY_MULT`.
+Giriş tetiği (en az 1 şart):
+4. **FVG** — fiyat displacement'ın FVG'sine geri döndü.
+5. **OTE** — fiyat 0.618-0.786 bölgesinde.
+
+**Giriş / SL / TP (dokümana göre):**
+- **Giriş**: PD array seviyesine **bekleyen (limit) emir** — FVG'nin ortası,
+  FVG yoksa OTE bölgesinin ortası. Doküman "fiyatın PD array'e geri dönmesini
+  bekle, test ettiğinde işleme gir" der; 1:3 matematiği bu giriş fiyatına
+  dayanır. O anki fiyattan giriş varsayılırsa R:R çöker (örn. 2.30 → 0.33).
+- **SL**: süpürülen ekstremin ötesi (küçük ATR tamponuyla)
+- **TP1**: aralığın karşı tarafı — dokümanın birincil hedefi
+- **TP2/TP3**: önceki gün ve önceki hafta high/low'u (dokümandaki likidite tipleri)
+- **Zorunlu**: TP1 R:R en az `ICT_MIN_TP1_RR` (**3.0**) — doküman 1:3 ve üzeri hedefler
+
+Parametreler `ict_scanner.py` başında ayarlanabilir: `CORE_CRITERIA`,
+`CONFIRM_CRITERIA`, `MIN_CONFIRMATIONS`, `LONDON_KZ_NY`, `NY_KZ_NY`,
+`NY_LUNCH`, `ENTRY_INTERVAL`, `MSS_PIVOT_LEN`, `MSS_SEARCH_BARS`,
+`DISPLACEMENT_BODY_MULT`, `SETUP_MAX_AGE_HOURS`, `ICT_MIN_TP1_RR`.
 
 ## Sınırlamalar
 - OB/FVG/BOS tespiti basitleştirilmiş bir yaklaşımdır, TradingView'daki Pine
@@ -157,9 +170,13 @@ ayarlanabilir: `CORE_CRITERIA`, `CONFIRM_CRITERIA`, `MIN_CONFIRMATIONS`,
   dayanır, gelecekteki fiyat hareketini garanti etmez.
 - Kaldıraç/pozisyon önerileri R:R'a göre ölçeklenir ama yine de varsayımlara
   dayanır; kendi sermayeni ve risk toleransını mutlaka göz önünde bulundur.
-- ICT checklist kriterleri basitleştirilmiş, otomatikleştirilebilir
-  yaklaşımlardır — ICT'nin tam metodolojisinin birebir yerine geçmez.
-  Sweep/displacement/giriş 15 dakikalık veride ölçülür; ICT'nin önerdiği
-  1M-5M çözünürlükten daha kabadır.
+- ICT 2022 modeli otomatikleştirilebilir bir yaklaşımdır — dokümandaki
+  metodolojinin birebir yerine geçmez. MSS/displacement/giriş 5 dakikalık
+  veride ölçülür; doküman 3M ve 1M'i de seçenek olarak sunar.
+- Doküman FX ve endeksler (NQ, ES, GBP/USD, XAU/USD) için yazılmıştır; kripto
+  7/24 işlem gördüğü için seans mantığı aynı güçte çalışmayabilir.
+- Dokümandaki NY seansı "senaryo I" (London zaten süpürdüyse, London bacağının
+  OTE'sinden devam işlemi) uygulanmadı; sadece süpürme temelli ana akış
+  (London kurulumu ve NY "senaryo II") kodlandı.
 - Bu bir yatırım tavsiyesi değildir; gerçek parayla kullanmadan önce sinyalleri
   gözle/backtest ile doğrula.

@@ -269,12 +269,13 @@ def pick_tp_levels(entry, ltf_levels, htf_levels, direction, count=3, min_gap_pc
     return picked
 
 
-def is_valid_setup(entry, sl, tp1, direction):
+def is_valid_setup(entry, sl, tp1, direction, min_rr=MIN_TP1_RR):
     """Kurulum işleme değer mi?
     1) Geometri tutarlı olmalı: SL, order block'tan türetildiği için (kırılım
        15 bar öncesine kadar eski olabilir) fiyat bu arada SL'in öbür tarafına
        geçmiş olabilir — o durumda long'da SL girişin ÜSTÜNDE kalır.
-    2) TP1 R:R en az MIN_TP1_RR olmalı; altındaysa işlem asimetrik değildir."""
+    2) TP1 R:R en az min_rr olmalı; altındaysa işlem asimetrik değildir.
+       (OB stratejisi 1.5 kullanır, ICT 2022 modeli dokümana uygun 3.0.)"""
     if entry is None or sl is None or tp1 is None:
         return False
     if direction == "long":
@@ -285,7 +286,7 @@ def is_valid_setup(entry, sl, tp1, direction):
     risk = abs(entry - sl)
     if risk <= 0:
         return False
-    return abs(tp1 - entry) / risk >= MIN_TP1_RR
+    return abs(tp1 - entry) / risk >= min_rr
 
 
 def suggest_leverage(entry, sl, margin_risk_fraction):
