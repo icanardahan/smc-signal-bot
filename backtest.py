@@ -16,6 +16,8 @@ Kullanım:
     python backtest.py [gün_sayısı] [sembol_sayısı]
 """
 
+import json
+import os
 import sys
 import time
 from bisect import bisect_right
@@ -26,6 +28,13 @@ import ict_scanner as ict
 SCAN_HOURS_UTC = (0, 4, 8, 12, 16, 20)  # workflow cron saatleri
 SCAN_MINUTE = 5
 WINDOW_BARS = 1152  # her taramada modele verilen kuyruk penceresi (~4 gün)
+
+# ---- Sermaye modeli: 100 dolar, 10x izole marjin ----
+START_BALANCE = 100.0
+LEVERAGE = 10
+MARGIN_PCT = 0.10   # her işlemde bakiyenin %10'u marjin olarak ayrılır
+                    # (10x ile nominal = bakiye; aynı anda ~10 pozisyon mümkün)
+TAKER_FEE = 0.0005  # tek yön komisyon (Binance taker ~%0.05)
 
 
 def top_symbols_by_volume(n):
@@ -39,8 +48,20 @@ def top_symbols_by_volume(n):
     return [s for _, s in vols[:n]]
 
 
+CACHE_DIR = os.path.join(os.path.dirname(__file__), ".backtest_cache")
+
+
 def fetch_range(symbol, interval, start_ms, end_ms):
-    """Binance 1000 mum sınırını aşmak için sayfalayarak veri çeker."""
+    """Binance 1000 mum sınırını aşmak için sayfalayarak veri çeker.
+    Sonuç diske önbelleklenir — parametre değiştirip tekrar denerken
+    aynı veriyi baştan indirmemek için."""
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    key = f"{symbol}_{interval}_{start_ms // 3600000}_{end_ms // 3600000}.json"
+    path = os.path.join(CACHE_DIR, key)
+    if os.path.exists(path):
+        with open(path) as f:
+            return json.load(f)
+
     out = []
     cursor = start_ms
     while cursor < end_ms:
@@ -59,6 +80,9 @@ def fetch_range(symbol, interval, start_ms, end_ms):
             break
         cursor = nxt
         time.sleep(ict.REQUEST_SLEEP)
+
+    with open(path, "w") as f:
+        json.dump(out, f)
     return out
 
 
@@ -141,19 +165,58 @@ def simulate_symbol(symbol, daily_all, m5_all, scans):
 
 
 def finish(symbol, direction, pos, unresolved=False):
-    """İşlemi R katı cinsinden sonuçlandırır (TP1'de çıkış varsayımı)."""
+    """İşlemi R katı VE fiyat yüzdesi cinsinden sonuçlandırır.
+    TP1'de çıkış varsayılır (dokümanın birincil hedefi)."""
     entry, sl, tp1 = pos["entry"], pos["sl"], pos.get("tp1")
     risk = abs(entry - sl)
     st = pos["status"]
+    is_long = direction == "long"
+
     if st == "sl_hit":
-        r = -1.0
+        r, move_pct = -1.0, ict.pct_move(entry, sl, is_long)
     elif st in ("tp1_hit", "tp2_hit", "tp3_hit"):
         r = abs(tp1 - entry) / risk if risk else 0.0
-    else:
-        r = 0.0  # expired / timeout / çözülmemiş -> nötr
+        move_pct = ict.pct_move(entry, tp1, is_long)
+    elif st == "timeout":
+        # Zaman aşımında pozisyon o anki fiyattan kapanır — nötr değil
+        ex = pos.get("exit_price", entry)
+        move_pct = ict.pct_move(entry, ex, is_long)
+        r = move_pct / (100 * risk / entry) if risk else 0.0
+    else:  # expired: emir hiç dolmadı, para riske girmedi
+        r, move_pct = 0.0, 0.0
+
     return {"symbol": symbol, "direction": direction, "status": st,
-            "R": r, "session": pos.get("session"), "rr1": pos.get("rr1"),
-            "unresolved": unresolved}
+            "R": r, "move_pct": move_pct, "session": pos.get("session"),
+            "rr1": pos.get("rr1"),
+            "risk_pct": 100 * risk / entry if entry else None,
+            "entry_kind": pos.get("entry_kind"),
+            "exit_time": pos.get("exit_time", 0), "unresolved": unresolved}
+
+
+def simulate_equity(trades):
+    """100 dolarlık bakiyeyi, 10x izole marjinle kronolojik olarak işletir.
+    Her işlemde bakiyenin MARGIN_PCT'i marjin olarak ayrılır; 10x kaldıraçla
+    nominal büyüklük bunun 10 katıdır. İzole marjinde bir işlemde
+    kaybedilebilecek en fazla tutar o işlemin marjinidir."""
+    bal = START_BALANCE
+    peak = bal
+    mdd = 0.0
+    curve = []
+    for t in sorted(trades, key=lambda x: x["exit_time"] or 0):
+        if t["status"] == "expired":
+            continue  # emir dolmadı, komisyon/pozisyon yok
+        margin = bal * MARGIN_PCT
+        notional = margin * LEVERAGE
+        pnl = notional * t["move_pct"] / 100
+        pnl -= notional * TAKER_FEE * 2          # giriş + çıkış komisyonu
+        pnl = max(pnl, -margin)                  # izole: en fazla marjin kadar
+        bal += pnl
+        peak = max(peak, bal)
+        mdd = min(mdd, (bal - peak) / peak * 100)
+        curve.append(bal)
+        if bal <= 1:
+            break
+    return bal, mdd, curve
 
 
 def report(trades):
@@ -203,6 +266,34 @@ def report(trades):
                 w = sum(1 for t in sub if t["R"] > 0)
                 print(f"  {sess:7s}: {len(sub)} işlem, isabet %{100*w/len(sub):.0f}, "
                       f"{sum(t['R'] for t in sub):+.2f}R")
+    # Risk mesafesi dağılımı: R:R filtresi çok küçük riskli (SL'i girişe bir
+    # kıl payı uzak) kurulumları seçiyorsa işlemler gürültüde stop olur.
+    risks = sorted(t["risk_pct"] for t in resolved if t.get("risk_pct"))
+    if risks:
+        def q(p):
+            return risks[min(len(risks) - 1, int(p * len(risks)))]
+        print()
+        print("Risk mesafesi (|giriş-SL| / giriş, %):")
+        print(f"  medyan {q(0.5):.3f}%   |  %25: {q(0.25):.3f}%   |  %75: {q(0.75):.3f}%")
+        print(f"  en dar {risks[0]:.4f}%  |  en geniş {risks[-1]:.3f}%")
+        tiny = [r for r in risks if r < 0.15]
+        print(f"  %0.15'ten dar olan: {len(tiny)}/{len(risks)} işlem")
+
+    # ---- Dolar bazlı sonuç ----
+    bal, mdd_pct, curve = simulate_equity(trades)
+    print()
+    print("-" * 62)
+    print(f"SERMAYE ({START_BALANCE:.0f}$ başlangıç, {LEVERAGE}x izole marjin, "
+          f"işlem başına bakiyenin %{MARGIN_PCT*100:.0f}'i marjin)")
+    print("-" * 62)
+    print(f"Başlangıç            : {START_BALANCE:8.2f}$")
+    print(f"Bitiş                : {bal:8.2f}$")
+    print(f"Net                  : {bal - START_BALANCE:+8.2f}$  "
+          f"({100*(bal-START_BALANCE)/START_BALANCE:+.1f}%)")
+    print(f"Maks. geri çekilme   : {mdd_pct:8.1f}%")
+    print(f"İşlem gören pozisyon : {len(curve)}")
+    print(f"(komisyon dahil: her yön %{TAKER_FEE*100:.2f})")
+
     print()
     print("Not: 1R = giriş-SL mesafesi. TP1'de çıkış varsayıldı; zaman aşımı ve")
     print("çözülmemiş işlemler 0R (nötr) sayıldı. Komisyon/kayma dahil değildir.")

@@ -73,6 +73,12 @@ REQUEST_SLEEP = 0.15           # rate-limit için istekler arası bekleme
 FILL_TIMEOUT_HOURS = 12        # bekleyen emir bu sürede dolmazsa iptal
 POSITION_TIMEOUT_HOURS = 12    # dolan pozisyon bu sürede SL/TP3 görmezse kapat
 
+# ---------------- Sermaye / risk gösterimi ----------------
+# Sinyal mesajında somut para karşılığını göstermek için kullanılır.
+ACCOUNT_BALANCE = 100.0        # varsayılan cüzdan (USDT)
+LEVERAGE = 10                  # izole marjin kaldıracı
+MARGIN_PCT = 0.10              # işlem başına ayrılan marjin (bakiyenin oranı)
+
 # Checklist: 3 çekirdek (hepsi şart) + giriş tetiği (en az 1 şart)
 CORE_CRITERIA = ["killzone", "liquidity_sweep", "mss_displacement"]
 CONFIRM_CRITERIA = ["fvg_entry", "ote_entry"]
@@ -313,28 +319,36 @@ def ote_zone(sweep_extreme, leg_extreme, bias):
 
 
 def pick_targets(entry, direction, range_high, range_low, daily):
-    """Dokümandaki likidite tipleri hedef olur: aralığın karşı tarafı
-    (birincil hedef), önceki gün ve önceki hafta high/low'u."""
-    levels = [range_high if direction == "long" else range_low]
+    """TP1 dokümanın BİRİNCİL hedefidir: aralığın karşı tarafı. Bu seviye
+    başka bir seviyeyle ikame EDİLMEZ — girişe çok yakınsa kurulumun kalan
+    getirisi yok demektir ve hedefler boş döner (kurulum reddedilir).
+    Aksi halde daha uzak bir seviye TP1 yerine geçip R:R'ı yapay şişiriyor,
+    hareketi bitmiş bir işlem geçerli görünüyordu.
+
+    TP2/TP3 dokümandaki diğer likidite tipleridir: önceki gün ve önceki
+    hafta high/low'u — yalnızca TP1'in ötesindeyseler kullanılır."""
+    d = entry * MIN_TP_DISTANCE_PCT / 100
+    tp1 = range_high if direction == "long" else range_low
+    if tp1 is None:
+        return [None, None, None]
+    if (tp1 <= entry + d) if direction == "long" else (tp1 >= entry - d):
+        return [None, None, None]  # birincil hedefe yer kalmamış
+
+    extra = []
     if daily:
         prev_day = daily[-1]  # en son KAPANMIŞ gün = "önceki gün"
-        levels.append(prev_day["high"] if direction == "long" else prev_day["low"])
+        extra.append(prev_day["high"] if direction == "long" else prev_day["low"])
     if len(daily) >= 8:
         prev_week = daily[-8:-1]  # ondan önceki 7 gün
-        levels.append(max(c["high"] for c in prev_week) if direction == "long"
-                      else min(c["low"] for c in prev_week))
+        extra.append(max(c["high"] for c in prev_week) if direction == "long"
+                     else min(c["low"] for c in prev_week))
 
-    d = entry * MIN_TP_DISTANCE_PCT / 100
-    if direction == "long":
-        cand = sorted({lv for lv in levels if lv is not None and lv > entry + d})
-    else:
-        cand = sorted({lv for lv in levels if lv is not None and lv < entry - d},
-                      reverse=True)
-
-    # Hedefler birbirine de çok yakın olmamalı; aksi halde TP2, TP1'in
-    # neredeyse aynısı olup ayrı bir hedef olma değerini kaybediyor.
-    picked = []
-    for lv in cand:
+    picked = [tp1]
+    beyond = sorted({lv for lv in extra if lv is not None and lv > tp1}) \
+        if direction == "long" else \
+        sorted({lv for lv in extra if lv is not None and lv < tp1}, reverse=True)
+    for lv in beyond:
+        # Hedefler birbirine de çok yakın olmamalı
         if all(abs(lv - p) / p >= MIN_TP_DISTANCE_PCT / 100 for p in picked):
             picked.append(lv)
         if len(picked) == 3:
@@ -416,9 +430,15 @@ def analyze_session(m5, daily, bias, ny_date, session):
     atr = compute_atr(m5, 14)
     sl = (sweep_extreme - atr * SL_ATR_MULT if bias == "long"
           else sweep_extreme + atr * SL_ATR_MULT)
+    atr_pct = 100 * atr / current if current else None
 
     ref = entry if entry is not None else current
     tp1, tp2, tp3 = pick_targets(ref, bias, range_high, range_low, daily)
+
+    # Hareket bitmişse işleme girilmez: fiyat birincil hedefi (aralığın karşı
+    # tarafını) zaten geçtiyse alınacak bir şey kalmamıştır.
+    if tp1 is not None and ((current >= tp1) if bias == "long" else (current <= tp1)):
+        tp1 = tp2 = tp3 = None
     risk = abs(ref - sl)
     rrs = [abs(tp - ref) / risk if (tp is not None and risk > 0) else None
            for tp in (tp1, tp2, tp3)]
@@ -435,6 +455,8 @@ def analyze_session(m5, daily, bias, ny_date, session):
         "tp1": tp1, "tp2": tp2, "tp3": tp3,
         "rr1": rrs[0], "rr2": rrs[1], "rr3": rrs[2],
         "range_high": range_high, "range_low": range_low,
+        "atr_pct": atr_pct,
+        "risk_pct": (100 * abs(ref - sl) / ref) if ref else None,
         "sweep_time": sweep_candle["open_time"],
         "mss_time": m5[mss_idx]["open_time"] if mss_idx is not None else None,
     }
@@ -541,6 +563,7 @@ def monitor_position(pos, m5, direction):
 
         if (c["low"] <= sl) if is_long else (c["high"] >= sl):
             status = "sl_hit"
+            pos["exit_time"] = c["close_time"]
             events.append("sl_hit")
             break
         if status == "open" and tp1 is not None and \
@@ -554,6 +577,7 @@ def monitor_position(pos, m5, direction):
         if status == "tp2_hit" and tp3 is not None and \
            ((c["high"] >= tp3) if is_long else (c["low"] <= tp3)):
             status = "tp3_hit"
+            pos["exit_time"] = c["close_time"]
             events.append("tp3_hit")
 
     now_ms = new[-1]["close_time"]
@@ -561,11 +585,14 @@ def monitor_position(pos, m5, direction):
         age = (now_ms - pos.get("signal_time", now_ms)) / 3600000
         if age >= FILL_TIMEOUT_HOURS:
             status = "expired"
+            pos["exit_time"] = now_ms
             events.append("expired")
     elif status in ("open", "tp1_hit", "tp2_hit"):
         age = (now_ms - pos.get("fill_time", now_ms)) / 3600000
         if age >= POSITION_TIMEOUT_HOURS:
             pos["timeout_after_hours"] = round(age, 1)
+            pos["exit_price"] = new[-1]["close"]
+            pos["exit_time"] = now_ms
             status = "timeout"
             events.append("timeout")
 
@@ -679,8 +706,27 @@ def format_signal_message(symbol, r):
         f"🎯 TP2: {_tp(r['tp2'], r['rr2'])}",
         f"🎯 TP3: {_tp(r['tp3'], r['rr3'])}",
         "",
-        "<b>Çekirdek (hepsi sağlandı):</b>",
     ]
+
+    # Risk mesafesi ve 10x izole marjinde somut para karşılığı.
+    # (Testlerde en çok işe yarayan iki ölçüt: stopun ATR'ye göre genişliği ve
+    #  işlemin gerçekte kaç dolar riske attığı.)
+    risk_pct, atr_pct = r.get("risk_pct"), r.get("atr_pct")
+    if risk_pct:
+        margin = ACCOUNT_BALANCE * MARGIN_PCT
+        notional = margin * LEVERAGE
+        risk_usd = notional * risk_pct / 100
+        line = (f"📏 Risk mesafesi: %{risk_pct:.2f}"
+                f"{f'  ({risk_pct/atr_pct:.1f}× 5dk ATR)' if atr_pct else ''}")
+        lines.append(line)
+        if atr_pct and risk_pct / atr_pct < 1:
+            lines.append("   ⚠️ Stop, tek mumluk dalgalanmanın içinde — dar")
+        lines.append(
+            f"💵 {ACCOUNT_BALANCE:.0f}$ · {LEVERAGE}x izole · marjin {margin:.0f}$ → "
+            f"risk {risk_usd:.2f}$ / TP1 kazanç {risk_usd * (r['rr1'] or 0):.2f}$")
+        lines.append("")
+
+    lines.append("<b>Çekirdek (hepsi sağlandı):</b>")
     for k in CORE_CRITERIA:
         lines.append(f"{'✅' if r['criteria'][k] else '❌'} {CRITERIA_LABELS[k]}")
     lines.append("")
