@@ -1,8 +1,8 @@
-name: SMC Sinyal Taraması
+name: ICT 2022 Sinyal Taraması
 
 on:
   schedule:
-    # Her 4 saatlik mumun kapanışından ~5 dakika sonra çalışır (UTC)
+    # Her 4 saatlik dilimin başında çalışır (UTC)
     - cron: "5 0,4,8,12,16,20 * * *"
   workflow_dispatch: {}
 
@@ -19,24 +19,18 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: HTF/LTF Order Block stratejisini çalıştır
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python scanner.py
-
-      - name: ICT 2022 Trading Model stratejisini çalıştır
+      - name: ICT 2022 taramasını çalıştır
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python ict_scanner.py
 
-      - name: Durumu (state.json, ict_state.json) kaydet
+      - name: Durumu (ict_state.json) kaydet
         run: |
-          git config user.name "smc-signal-bot"
+          git config user.name "ict-signal-bot"
           git config user.email "actions@users.noreply.github.com"
-          if ! git diff --quiet -- state.json ict_state.json; then
-            git add state.json ict_state.json
+          if ! git diff --quiet -- ict_state.json; then
+            git add ict_state.json
             git commit -m "state güncelle"
             for i in 1 2 3 4 5; do
               git pull --rebase --autostash origin main && git push && break
