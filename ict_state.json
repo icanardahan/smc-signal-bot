@@ -1,1 +1,128 @@
-{}
+{
+  "BICOUSDT": {
+    "long": {
+      "entry": 0.03788558,
+      "entry_kind": "OTE",
+      "last_checked_close_time": 1786468199999,
+      "mss_time": 1786434600000,
+      "signal_time": 1786468199999,
+      "sl": 0.03668871428571428,
+      "status": "pending",
+      "tp1": 0.04853,
+      "tp2": 0.05217,
+      "tp3": 0.09
+    }
+  },
+  "CGPTUSDT": {
+    "long": {
+      "entry": 0.02026,
+      "entry_kind": "FVG",
+      "last_checked_close_time": 1786468199999,
+      "mss_time": 1786435500000,
+      "signal_time": 1786468199999,
+      "sl": 0.019998535714285715,
+      "status": "pending",
+      "tp1": 0.02115,
+      "tp2": 0.02369,
+      "tp3": 0.02445
+    }
+  },
+  "HAEDALUSDT": {
+    "long": {
+      "entry": 0.016845,
+      "entry_kind": "FVG",
+      "last_checked_close_time": 1786468199999,
+      "mss_time": 1786436400000,
+      "signal_time": 1786468199999,
+      "sl": 0.016728857142857143,
+      "status": "pending",
+      "tp1": 0.01756,
+      "tp2": 0.01821,
+      "tp3": 0.01833
+    }
+  },
+  "IOTXUSDT": {
+    "long": {
+      "entry": 0.0024549999999999997,
+      "entry_kind": "FVG",
+      "last_checked_close_time": 1786468199999,
+      "mss_time": 1786435500000,
+      "signal_time": 1786468199999,
+      "sl": 0.0024184999999999996,
+      "status": "pending",
+      "tp1": 0.00257,
+      "tp2": 0.003,
+      "tp3": 0.00412
+    }
+  },
+  "MUBARAKUSDT": {
+    "long": {
+      "entry": 0.017475,
+      "entry_kind": "FVG",
+      "last_checked_close_time": 1786468499999,
+      "mss_time": 1786435200000,
+      "signal_time": 1786468499999,
+      "sl": 0.016927,
+      "status": "pending",
+      "tp1": 0.02013,
+      "tp2": 0.02709,
+      "tp3": 0.02998
+    }
+  },
+  "PAXGUSDT": {
+    "long": {
+      "entry": 4361.715,
+      "entry_kind": "FVG",
+      "last_checked_close_time": 1786468499999,
+      "mss_time": 1786435200000,
+      "signal_time": 1786468499999,
+      "sl": 4356.772285714286,
+      "status": "pending",
+      "tp1": 4397.13,
+      "tp2": 4415.18,
+      "tp3": null
+    }
+  },
+  "STGUSDT": {
+    "long": {
+      "entry": 0.13369999999999999,
+      "entry_kind": "FVG",
+      "last_checked_close_time": 1786468799999,
+      "mss_time": 1786436100000,
+      "signal_time": 1786468799999,
+      "sl": 0.13260464285714288,
+      "status": "pending",
+      "tp1": 0.1376,
+      "tp2": 0.1437,
+      "tp3": 0.1813
+    }
+  },
+  "THEUSDT": {
+    "long": {
+      "entry": 0.0605,
+      "entry_kind": "FVG",
+      "last_checked_close_time": 1786468799999,
+      "mss_time": 1786435500000,
+      "signal_time": 1786468799999,
+      "sl": 0.059542142857142856,
+      "status": "pending",
+      "tp1": 0.0666,
+      "tp2": 0.076,
+      "tp3": 0.0778
+    }
+  },
+  "XAUTUSDT": {
+    "long": {
+      "entry": 4345.67,
+      "entry_kind": "FVG",
+      "last_checked_close_time": 1786468799999,
+      "mss_time": 1786435200000,
+      "signal_time": 1786468799999,
+      "sl": 4341.070142857143,
+      "status": "pending",
+      "tp1": 4379.35,
+      "tp2": 4398.44,
+      "tp3": null
+    }
+  }
+}
