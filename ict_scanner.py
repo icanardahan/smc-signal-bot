@@ -36,6 +36,7 @@ import time
 import urllib.request
 import urllib.error
 from datetime import datetime, timezone, timedelta
+from functools import lru_cache
 from zoneinfo import ZoneInfo
 
 # api.binance.com bazı bölgelerden (ör. GitHub Actions ABD sunucuları) 451 ile
@@ -156,8 +157,10 @@ def compute_atr(candles, length=14):
 
 
 # ---------------- Zaman ----------------
+@lru_cache(maxsize=400_000)
 def to_ny(ms):
-    """Epoch (ms) -> New York yerel saati. Yaz/kış saati (EST/EDT) otomatik."""
+    """Epoch (ms) -> New York yerel saati. Yaz/kış saati (EST/EDT) otomatik.
+    Aynı mum zamanları defalarca sorgulandığı için önbelleklenir."""
     return datetime.fromtimestamp(ms / 1000, tz=timezone.utc).astimezone(NY_TZ)
 
 
@@ -437,18 +440,16 @@ def analyze_session(m5, daily, bias, ny_date, session):
     }
 
 
-def evaluate_symbol(symbol):
-    daily = fetch_klines(symbol, DAILY_INTERVAL, DAILY_LIMIT)
-    time.sleep(REQUEST_SLEEP)
-    m5 = fetch_klines(symbol, ENTRY_INTERVAL, ENTRY_LIMIT)
-    time.sleep(REQUEST_SLEEP)
-
+def evaluate(daily, m5):
+    """Veri çekmeden, verilen mumlar üzerinde modeli çalıştırır.
+    m5'in son mumu 'şu an' kabul edilir — backtest bu sayede aynı kod yolunu
+    geçmiş bir ana dilim vererek kullanabilir."""
     if len(daily) < BIAS_PIVOT_LEN * 2 + 5 or len(m5) < 100:
-        return None, m5
+        return None
 
     bias = compute_daily_bias(daily)
     if bias is None:
-        return None, m5
+        return None
 
     latest_date = to_ny(m5[-1]["open_time"]).date()
     now_ms = m5[-1]["close_time"]
@@ -468,7 +469,7 @@ def evaluate_symbol(symbol):
             break
 
     if best is None:
-        return None, m5
+        return None
 
     core_ok = all(best["criteria"][k] for k in CORE_CRITERIA)
     confirms = sum(best["criteria"][k] for k in CONFIRM_CRITERIA)
@@ -476,7 +477,16 @@ def evaluate_symbol(symbol):
                          and best["entry"] is not None
                          and is_valid_setup(best["entry"], best["sl"],
                                             best["tp1"], best["direction"]))
-    return best, m5
+    return best
+
+
+def evaluate_symbol(symbol):
+    """Canlı tarama: veriyi çeker ve modeli çalıştırır."""
+    daily = fetch_klines(symbol, DAILY_INTERVAL, DAILY_LIMIT)
+    time.sleep(REQUEST_SLEEP)
+    m5 = fetch_klines(symbol, ENTRY_INTERVAL, ENTRY_LIMIT)
+    time.sleep(REQUEST_SLEEP)
+    return evaluate(daily, m5), m5
 
 
 # ---------------- Pozisyon takibi ----------------
