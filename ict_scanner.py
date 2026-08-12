@@ -78,7 +78,12 @@ TP1_R_MULTIPLE = 1.0           # TP1 = giriş ± bu kat × risk
 # kalır, risk ~%0.09'a düşer ve R:R yapay olarak 10+ görünür. Böyle "bıçak
 # sırtı" kurulumlar emir dolar dolmaz stop oluyor. Stop, girişten en az bu
 # kadar uzakta olmalı.
-MIN_RISK_ATR = 1.0             # 5dk ATR katı
+# 1.5 değeri filtre taramasıyla seçildi: 90 günlük veri iki yarıya bölünüp test
+# edildiğinde HER İKİ yarıda da beklentiyi ve dolar sonucunu artı tutan tek
+# filtre buydu (1. yarı +0.134R, 2. yarı +0.098R). 2.0 ve üzeri ikinci yarıda
+# eksiye döndüğü, 1.0 ise başabaşa yaklaştığı için tercih edilmedi.
+# Mekanizma: geniş stop -> sabit % risk için küçük nominal -> az komisyon.
+MIN_RISK_ATR = 1.5             # 5dk ATR katı
 MIN_RISK_PCT = 0.15            # ve fiyatın en az bu yüzdesi
 MIN_TP_DISTANCE_PCT = 0.30     # girişe bundan yakın hedefler elenir
 REQUEST_SLEEP = 0.15           # rate-limit için istekler arası bekleme
