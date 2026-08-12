@@ -593,10 +593,12 @@ def monitor_position(pos, m5, direction):
     events = []
 
     for c in new:
+        just_filled = False
         if status == "pending":
             # Limit emir, fiyat giriş seviyesine değdiğinde dolar
             if c["low"] <= entry <= c["high"]:
                 status = "open"
+                just_filled = True
                 pos["fill_time"] = c["close_time"]
                 events.append("filled")
             else:
@@ -611,6 +613,12 @@ def monitor_position(pos, m5, direction):
             pos["exit_time"] = c["close_time"]
             events.append(status)
             break
+        # Dolum mumunda TP SAYILMAZ: mum içi sıralama bilinemediği için
+        # "aynı mumda hem doldu hem hedefe ulaştı" varsayımı kazançları
+        # yapay şişiriyor. Muhafazakâr taraf seçilir.
+        if just_filled:
+            continue
+
         if status == "open" and tp1 is not None and \
            ((c["high"] >= tp1) if is_long else (c["low"] <= tp1)):
             status = "tp1_hit"
