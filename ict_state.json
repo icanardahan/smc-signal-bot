@@ -70,12 +70,14 @@
     "short": {
       "entry": 16.337220000000002,
       "entry_kind": "OTE",
-      "last_checked_close_time": 1786541699999,
+      "fill_time": 1786543199999,
+      "last_checked_close_time": 1786547399999,
       "mss_time": 1786541100000,
       "signal_time": 1786541699999,
       "sl": 16.373214285714287,
-      "status": "pending",
+      "status": "tp2_hit",
       "tp1": 16.301225714285717,
+      "tp1_reached": true,
       "tp2": 16.17,
       "tp3": 16.12
     }
@@ -84,7 +86,7 @@
     "short": {
       "entry": 2.0565e-05,
       "entry_kind": "FVG",
-      "last_checked_close_time": 1786541999999,
+      "last_checked_close_time": 1786547699999,
       "mss_time": 1786539600000,
       "signal_time": 1786541999999,
       "sl": 2.0646642857142856e-05,
@@ -122,6 +124,20 @@
       "tp1": 0.00257,
       "tp2": 0.003,
       "tp3": 0.00412
+    }
+  },
+  "LDOUSDT": {
+    "short": {
+      "entry": 0.2952074,
+      "entry_kind": "OTE",
+      "last_checked_close_time": 1786547999999,
+      "mss_time": 1786542000000,
+      "signal_time": 1786547999999,
+      "sl": 0.29758928571428567,
+      "status": "pending",
+      "tp1": 0.2907,
+      "tp2": 0.2863,
+      "tp3": 0.2839
     }
   },
   "MUBARAKUSDT": {
@@ -189,6 +205,20 @@
       "tp1": 0.1376,
       "tp2": 0.1437,
       "tp3": 0.1813
+    }
+  },
+  "STORJUSDT": {
+    "short": {
+      "entry": 0.0539,
+      "entry_kind": "FVG",
+      "last_checked_close_time": 1786548599999,
+      "mss_time": 1786523400000,
+      "signal_time": 1786548599999,
+      "sl": 0.0572,
+      "status": "pending",
+      "tp1": 0.0485,
+      "tp2": 0.0456,
+      "tp3": 0.0452
     }
   },
   "THEUSDT": {
