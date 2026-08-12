@@ -65,7 +65,15 @@ MSS_SEARCH_BARS = 36           # MSS, süpürmeden sonraki 3 saat içinde olmal�
 SETUP_MAX_AGE_HOURS = 12       # bundan eski kurulumlar bayat sayılır
 SESSION_DAYS_BACK = 2
 SL_ATR_MULT = 0.15             # süpürme ekstremine eklenecek tampon
-MIN_TP1_RR = 3.0               # doküman 1:3 ve üzeri hedefler
+# Dokümanın 1:3 şartı KURULUM KALİTESİ filtresi olarak korunur: aralık hedefi
+# en az 3R uzakta olmalı — bu, girişin discount/premium bölgede olmasını
+# matematiksel olarak zorunlu kılar.
+MIN_TP1_RR = 3.0
+# Ancak KÂR ALMA bunun tamamını beklemez. 90 günlük backtest'te hedef taraması,
+# çıkışın 1R'de yapılmasının hem en tutarlı hem kârlı seçenek olduğunu gösterdi
+# (dönem ayrımında iki yarıda da +0.14R / +0.15R). 1.5R ve 2R ikinci yarıda
+# eksiye döndüğü için tercih edilmedi.
+TP1_R_MULTIPLE = 1.0           # TP1 = giriş ± bu kat × risk
 # FVG bazen süpürme ekstremine yapışık oluşur; giriş SL'in bir kıl payı altında
 # kalır, risk ~%0.09'a düşer ve R:R yapay olarak 10+ görünür. Böyle "bıçak
 # sırtı" kurulumlar emir dolar dolmaz stop oluyor. Stop, girişten en az bu
@@ -446,11 +454,22 @@ def analyze_session(m5, daily, bias, ny_date, session):
             entry = entry_kind = None
 
     ref = entry if entry is not None else current
-    tp1, tp2, tp3 = pick_targets(ref, bias, range_high, range_low, daily)
+    range_tp, tp_far1, tp_far2 = pick_targets(ref, bias, range_high, range_low, daily)
 
-    # Hareket bitmişse işleme girilmez: fiyat birincil hedefi (aralığın karşı
-    # tarafını) zaten geçtiyse alınacak bir şey kalmamıştır.
-    if tp1 is not None and ((current >= tp1) if bias == "long" else (current <= tp1)):
+    # Hareket bitmişse işleme girilmez: fiyat aralık hedefini zaten geçtiyse
+    # alınacak bir şey kalmamıştır.
+    if range_tp is not None and ((current >= range_tp) if bias == "long"
+                                 else (current <= range_tp)):
+        range_tp = tp_far1 = tp_far2 = None
+
+    # Kâr alma kademeleri: TP1 sabit R katı (backtest'te en tutarlı seçenek),
+    # TP2 dokümanın aralık hedefi, TP3 bir sonraki likidite seviyesi.
+    if entry is not None and range_tp is not None:
+        risk_abs = abs(entry - sl)
+        tp1 = (entry + TP1_R_MULTIPLE * risk_abs if bias == "long"
+               else entry - TP1_R_MULTIPLE * risk_abs)
+        tp2, tp3 = range_tp, tp_far1
+    else:
         tp1 = tp2 = tp3 = None
     risk = abs(ref - sl)
     rrs = [abs(tp - ref) / risk if (tp is not None and risk > 0) else None
@@ -468,6 +487,7 @@ def analyze_session(m5, daily, bias, ny_date, session):
         "tp1": tp1, "tp2": tp2, "tp3": tp3,
         "rr1": rrs[0], "rr2": rrs[1], "rr3": rrs[2],
         "range_high": range_high, "range_low": range_low,
+        "range_tp": range_tp,   # kalite filtresi bu hedefe göre yapılır
         "atr_pct": atr_pct,
         "risk_pct": (100 * abs(ref - sl) / ref) if ref else None,
         "sweep_time": sweep_candle["open_time"],
@@ -508,10 +528,12 @@ def evaluate(daily, m5):
 
     core_ok = all(best["criteria"][k] for k in CORE_CRITERIA)
     confirms = sum(best["criteria"][k] for k in CONFIRM_CRITERIA)
+    # Kalite filtresi ARALIK hedefine göre (dokümanın 1:3 şartı) — kâr alma
+    # daha yakında yapılsa da kurulumun potansiyeli bu şartla ölçülür.
     best["qualifies"] = (core_ok and confirms >= MIN_CONFIRMATIONS
                          and best["entry"] is not None
                          and is_valid_setup(best["entry"], best["sl"],
-                                            best["tp1"], best["direction"]))
+                                            best["range_tp"], best["direction"]))
     return best
 
 

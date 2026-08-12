@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 
 import ict_scanner as ict
 
-SCAN_HOURS_UTC = (0, 4, 8, 12, 16, 20)  # workflow cron saatleri
+SCAN_HOURS_UTC = tuple(range(24))  # workflow cron saatleri (saatlik)
 SCAN_MINUTE = 5
 WINDOW_BARS = 1152  # her taramada modele verilen kuyruk penceresi (~4 gün)
 
@@ -34,7 +34,16 @@ START_BALANCE = 100.0
 LEVERAGE = 10
 MARGIN_PCT = 0.10   # her işlemde bakiyenin %10'u marjin olarak ayrılır
                     # (10x ile nominal = bakiye; aynı anda ~10 pozisyon mümkün)
-TAKER_FEE = 0.0005  # tek yön komisyon (Binance taker ~%0.05)
+# Komisyon: giriş BEKLEYEN (limit) emirle olduğu için maker; TP çıkışı da limit
+# emirle alınabilir (maker). Sadece SL/zaman aşımı piyasa emri = taker.
+MAKER_FEE = 0.0002  # Binance futures maker ~%0.02
+TAKER_FEE = 0.0005  # Binance futures taker ~%0.05
+
+
+def round_trip_fee(status):
+    """Giriş her zaman maker; çıkış kazançta maker, stopta taker."""
+    exit_fee = MAKER_FEE if status in ("tp1_hit", "tp2_hit", "tp3_hit") else TAKER_FEE
+    return MAKER_FEE + exit_fee
 
 
 def top_symbols_by_volume(n):
@@ -225,7 +234,7 @@ def simulate_equity_risk_based(trades):
         notional = risk_usd / (t["risk_pct"] / 100)
         notional = min(notional, bal * LEVERAGE)     # 10x üst sınırı
         pnl = notional * t["move_pct"] / 100
-        pnl -= notional * TAKER_FEE * 2
+        pnl -= notional * round_trip_fee(t["status"])
         pnl = max(pnl, -bal * MARGIN_PCT)            # izole marjin sınırı
         bal += pnl
         peak = max(peak, bal)
@@ -251,7 +260,7 @@ def simulate_equity(trades):
         margin = bal * MARGIN_PCT
         notional = margin * LEVERAGE
         pnl = notional * t["move_pct"] / 100
-        pnl -= notional * TAKER_FEE * 2          # giriş + çıkış komisyonu
+        pnl -= notional * round_trip_fee(t["status"])   # giriş + çıkış komisyonu
         pnl = max(pnl, -margin)                  # izole: en fazla marjin kadar
         bal += pnl
         peak = max(peak, bal)
@@ -335,7 +344,7 @@ def report(trades):
           f"({100*(bal-START_BALANCE)/START_BALANCE:+.1f}%)")
     print(f"Maks. geri çekilme   : {mdd_pct:8.1f}%")
     print(f"İşlem gören pozisyon : {len(curve)}")
-    print(f"(komisyon dahil: her yön %{TAKER_FEE*100:.2f})")
+    print(f"(komisyon: maker %{MAKER_FEE*100:.2f} giriş/TP, taker %{TAKER_FEE*100:.2f} stop)")
 
     rb_bal, rb_mdd, rb_n = simulate_equity_risk_based(trades)
     print()

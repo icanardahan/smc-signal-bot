@@ -2,8 +2,10 @@ name: ICT 2022 Sinyal Taraması
 
 on:
   schedule:
-    # Her 4 saatlik dilimin başında çalışır (UTC)
-    - cron: "5 0,4,8,12,16,20 * * *"
+    # Saatlik: kurulumlar 5 dakikalık grafikte oluşuyor, 4 saatte bir taramak
+    # girişlerin kaçmasına yol açıyordu. Repo public olduğu için Actions
+    # dakikası ücretsiz ve sınırsız.
+    - cron: "5 * * * *"
   workflow_dispatch: {}
 
 permissions:

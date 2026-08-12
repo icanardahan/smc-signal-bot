@@ -43,7 +43,7 @@ def collect_signals(symbol, daily_all, m5_all, scans):
             continue
         seen.add(r["mss_time"])
         out.append({"symbol": symbol, "dir": r["direction"], "entry": r["entry"],
-                    "sl": r["sl"], "idx": i5, "session": r["session"],
+                    "sl": r["sl"], "idx": i5, "idx_time": now, "session": r["session"],
                     "range_tp": r["tp1"]})
     return out
 
@@ -143,11 +143,36 @@ def main():
             if st == "expired":
                 continue
             risk_pct = 100 * abs(s["entry"] - s["sl"]) / s["entry"]
-            trades_for_eq.append({"status": "x", "move_pct": rmult * risk_pct,
-                                  "exit_time": 0})
+            # TP çıkışı limit (maker), stop/zaman aşımı piyasa (taker)
+            trades_for_eq.append({"status": "tp1_hit" if st == "tp" else "sl_hit",
+                                  "move_pct": rmult * risk_pct, "exit_time": 0})
         bal, mdd, _ = bt.simulate_equity(trades_for_eq)
         print(f"{k:>5.2f}R {len(traded):>7} {wr:>7.1f}% {exp:>+9.3f}R "
               f"{bal:>9.2f}$ {bal-bt.START_BALANCE:>+8.2f}$")
+
+    # ---- Dönem ayrımı: ilk yarıda seçilen ayar ikinci yarıda da tutuyor mu? ----
+    mid = sorted(s["idx_time"] for s in all_sigs)[len(all_sigs) // 2]
+    print()
+    print("=" * 78)
+    print("DÖNEM AYRIMI — ilk yarıda en iyi olan, ikinci yarıda da iyi mi?")
+    print("(tutmuyorsa sonuç eğri uydurmadır, gerçek avantaj değil)")
+    print("=" * 78)
+    print(f"{'TP':>6} {'1. yarı isabet':>16} {'1. yarı bekl.':>15} "
+          f"{'2. yarı isabet':>16} {'2. yarı bekl.':>15}")
+    print("-" * 78)
+    for k in TP_MULTIPLES:
+        halves = [[], []]
+        for s in all_sigs:
+            out = simulate_exit(s, data[s["symbol"]], k)
+            if out and out[1] != "expired":
+                halves[0 if s["idx_time"] <= mid else 1].append(out)
+        row = f"{k:>5.2f}R"
+        for h in halves:
+            dec = [x for x in h if x[1] in ("tp", "sl")]
+            wr = 100 * sum(1 for x in dec if x[1] == "tp") / len(dec) if dec else 0
+            ex = sum(x[0] for x in h) / len(h) if h else 0
+            row += f" {wr:>15.1f}% {ex:>+14.3f}R"
+        print(row)
 
     print("-" * 78)
     print("beklenti = işlem başına ortalama R (zaman aşımı dahil).")
