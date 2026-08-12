@@ -66,6 +66,12 @@ SETUP_MAX_AGE_HOURS = 12       # bundan eski kurulumlar bayat sayılır
 SESSION_DAYS_BACK = 2
 SL_ATR_MULT = 0.15             # süpürme ekstremine eklenecek tampon
 MIN_TP1_RR = 3.0               # doküman 1:3 ve üzeri hedefler
+# FVG bazen süpürme ekstremine yapışık oluşur; giriş SL'in bir kıl payı altında
+# kalır, risk ~%0.09'a düşer ve R:R yapay olarak 10+ görünür. Böyle "bıçak
+# sırtı" kurulumlar emir dolar dolmaz stop oluyor. Stop, girişten en az bu
+# kadar uzakta olmalı.
+MIN_RISK_ATR = 1.0             # 5dk ATR katı
+MIN_RISK_PCT = 0.15            # ve fiyatın en az bu yüzdesi
 MIN_TP_DISTANCE_PCT = 0.30     # girişe bundan yakın hedefler elenir
 REQUEST_SLEEP = 0.15           # rate-limit için istekler arası bekleme
 
@@ -432,6 +438,13 @@ def analyze_session(m5, daily, bias, ny_date, session):
           else sweep_extreme + atr * SL_ATR_MULT)
     atr_pct = 100 * atr / current if current else None
 
+    # Bıçak sırtı elemesi: stop girişe çok yakınsa (gürültünün içinde) kurulum
+    # geçersizdir — emir dolar dolmaz stop olur, R:R ise yanıltıcı yüksektir.
+    if entry is not None:
+        risk_abs = abs(entry - sl)
+        if risk_abs < max(MIN_RISK_ATR * atr, entry * MIN_RISK_PCT / 100):
+            entry = entry_kind = None
+
     ref = entry if entry is not None else current
     tp1, tp2, tp3 = pick_targets(ref, bias, range_high, range_low, daily)
 
@@ -519,6 +532,7 @@ def pct_move(entry, price, is_long):
 EVENT_LABELS = {
     "filled": ("✅", "EMİR DOLDU"),
     "sl_hit": ("🛑", "SL VURULDU"),
+    "be_stop": ("🟰", "BAŞABAŞ ÇIKIŞ (TP1 sonrası stop girişe çekilmişti)"),
     "tp1_hit": ("🎯", "TP1 VURULDU"),
     "tp2_hit": ("🎯🎯", "TP2 VURULDU"),
     "tp3_hit": ("🏁", "TP3 VURULDU (pozisyon kapandı)"),
@@ -526,7 +540,7 @@ EVENT_LABELS = {
     "timeout": ("⏳", "ZAMAN AŞIMI"),
 }
 EVENT_PRICE_KEY = {"sl_hit": "sl", "tp1_hit": "tp1", "tp2_hit": "tp2", "tp3_hit": "tp3"}
-CLOSED_STATES = ("sl_hit", "tp3_hit", "timeout", "expired")
+CLOSED_STATES = ("sl_hit", "tp3_hit", "be_stop", "timeout", "expired")
 LIVE_STATES = ("pending", "open", "tp1_hit", "tp2_hit")
 
 
@@ -561,14 +575,19 @@ def monitor_position(pos, m5, direction):
             else:
                 continue
 
-        if (c["low"] <= sl) if is_long else (c["high"] >= sl):
-            status = "sl_hit"
+        # TP1 vurulduktan sonra stop başabaşa (girişe) çekilir. Aksi halde
+        # hedefine ulaşmış bir işlem geri dönüp tam zarara kapanabiliyordu.
+        stop = entry if status in ("tp1_hit", "tp2_hit") else sl
+
+        if (c["low"] <= stop) if is_long else (c["high"] >= stop):
+            status = "be_stop" if status in ("tp1_hit", "tp2_hit") else "sl_hit"
             pos["exit_time"] = c["close_time"]
-            events.append("sl_hit")
+            events.append(status)
             break
         if status == "open" and tp1 is not None and \
            ((c["high"] >= tp1) if is_long else (c["low"] <= tp1)):
             status = "tp1_hit"
+            pos["tp1_reached"] = True   # zaman aşımına gitse bile kazanç sayılsın
             events.append("tp1_hit")
         if status == "tp1_hit" and tp2 is not None and \
            ((c["high"] >= tp2) if is_long else (c["low"] <= tp2)):
@@ -612,6 +631,9 @@ def format_event_message(symbol, direction, pos, event, current_price=None):
                 f"{FILL_TIMEOUT_HOURS} saatte fiyat giriş seviyesine gelmedi, emir iptal edildi.")
     if event == "filled":
         return f"{head}\nGiriş: {entry:.6g}\nPozisyon açıldı, SL/TP takibi başladı."
+    if event == "be_stop":
+        return (f"{head}\nGiriş: {entry:.6g}\n"
+                f"TP1 alındıktan sonra fiyat girişe döndü, pozisyon başabaş kapandı.")
     if event == "timeout":
         p = current_price if current_price is not None else entry
         return (f"{head}\nGiriş: {entry:.6g}  Güncel: {p:.6g}\n"

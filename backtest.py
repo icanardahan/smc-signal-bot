@@ -56,7 +56,9 @@ def fetch_range(symbol, interval, start_ms, end_ms):
     Sonuç diske önbelleklenir — parametre değiştirip tekrar denerken
     aynı veriyi baştan indirmemek için."""
     os.makedirs(CACHE_DIR, exist_ok=True)
-    key = f"{symbol}_{interval}_{start_ms // 3600000}_{end_ms // 3600000}.json"
+    # Gün bazlı kova: aynı gün içindeki tekrar koşular veriyi yeniden indirmez
+    # (saat bazlı anahtar her koşuda değişip önbelleği işe yaramaz kılıyordu).
+    key = f"{symbol}_{interval}_{start_ms // 86400000}_{end_ms // 86400000}.json"
     path = os.path.join(CACHE_DIR, key)
     if os.path.exists(path):
         with open(path) as f:
@@ -174,14 +176,22 @@ def finish(symbol, direction, pos, unresolved=False):
 
     if st == "sl_hit":
         r, move_pct = -1.0, ict.pct_move(entry, sl, is_long)
+    elif st == "be_stop":
+        # TP1 alındı, sonra başabaş stopla çıkıldı: TP1 kazancı cepte kalır
+        r = abs(tp1 - entry) / risk if risk else 0.0
+        move_pct = ict.pct_move(entry, tp1, is_long)
     elif st in ("tp1_hit", "tp2_hit", "tp3_hit"):
         r = abs(tp1 - entry) / risk if risk else 0.0
         move_pct = ict.pct_move(entry, tp1, is_long)
     elif st == "timeout":
-        # Zaman aşımında pozisyon o anki fiyattan kapanır — nötr değil
-        ex = pos.get("exit_price", entry)
-        move_pct = ict.pct_move(entry, ex, is_long)
-        r = move_pct / (100 * risk / entry) if risk else 0.0
+        if pos.get("tp1_reached"):
+            # TP1'e ulaşılmıştı: "TP1'de çıkış" varsayımı gereği kazanç sayılır
+            r = abs(tp1 - entry) / risk if risk else 0.0
+            move_pct = ict.pct_move(entry, tp1, is_long)
+        else:
+            ex = pos.get("exit_price", entry)
+            move_pct = ict.pct_move(entry, ex, is_long)
+            r = move_pct / (100 * risk / entry) if risk else 0.0
     else:  # expired: emir hiç dolmadı, para riske girmedi
         r, move_pct = 0.0, 0.0
 
@@ -190,7 +200,40 @@ def finish(symbol, direction, pos, unresolved=False):
             "rr1": pos.get("rr1"),
             "risk_pct": 100 * risk / entry if entry else None,
             "entry_kind": pos.get("entry_kind"),
-            "exit_time": pos.get("exit_time", 0), "unresolved": unresolved}
+            "exit_time": pos.get("exit_time", 0), "tp1_reached": pos.get("tp1_reached", False),
+            "unresolved": unresolved}
+
+
+RISK_PCT_PER_TRADE = 0.02   # risk bazlı modelde: her işlemde bakiyenin %2'si
+
+
+def simulate_equity_risk_based(trades):
+    """Her işlemde bakiyenin sabit bir YÜZDESİ riske atılır; pozisyon boyutu
+    stop mesafesine göre ayarlanır (kaldıraç 10x ile sınırlı).
+
+    Sabit marjin modelinde stopu geniş olan işlem otomatik olarak çok daha
+    fazla dolar riske atıyor; bu da sonucu birkaç işlemin şansına bağlıyor.
+    Doğru karşılaştırma için R beklentisiyle uyumlu olan bu model kullanılır."""
+    bal = START_BALANCE
+    peak = bal
+    mdd = 0.0
+    n = 0
+    for t in sorted(trades, key=lambda x: x["exit_time"] or 0):
+        if t["status"] == "expired" or not t.get("risk_pct"):
+            continue
+        risk_usd = bal * RISK_PCT_PER_TRADE
+        notional = risk_usd / (t["risk_pct"] / 100)
+        notional = min(notional, bal * LEVERAGE)     # 10x üst sınırı
+        pnl = notional * t["move_pct"] / 100
+        pnl -= notional * TAKER_FEE * 2
+        pnl = max(pnl, -bal * MARGIN_PCT)            # izole marjin sınırı
+        bal += pnl
+        peak = max(peak, bal)
+        mdd = min(mdd, (bal - peak) / peak * 100)
+        n += 1
+        if bal <= 1:
+            break
+    return bal, mdd, n
 
 
 def simulate_equity(trades):
@@ -224,7 +267,7 @@ def report(trades):
         print("Hiç sinyal üretilmedi.")
         return
     filled = [t for t in trades if t["status"] not in ("expired",)]
-    resolved = [t for t in trades if t["status"] in ("sl_hit", "tp1_hit", "tp2_hit", "tp3_hit")]
+    resolved = [t for t in trades if t["status"] in ("sl_hit", "be_stop", "tp1_hit", "tp2_hit", "tp3_hit") or (t["status"] == "timeout" and t.get("tp1_reached"))]
     wins = [t for t in resolved if t["R"] > 0]
     losses = [t for t in resolved if t["R"] < 0]
     expired = [t for t in trades if t["status"] == "expired"]
@@ -293,6 +336,17 @@ def report(trades):
     print(f"Maks. geri çekilme   : {mdd_pct:8.1f}%")
     print(f"İşlem gören pozisyon : {len(curve)}")
     print(f"(komisyon dahil: her yön %{TAKER_FEE*100:.2f})")
+
+    rb_bal, rb_mdd, rb_n = simulate_equity_risk_based(trades)
+    print()
+    print(f"RİSK BAZLI boyutlama (her işlemde bakiyenin %{RISK_PCT_PER_TRADE*100:.0f}'i risk,")
+    print(f"pozisyon stop mesafesine göre, kaldıraç {LEVERAGE}x ile sınırlı):")
+    print(f"  Bitiş              : {rb_bal:8.2f}$   "
+          f"({100*(rb_bal-START_BALANCE)/START_BALANCE:+.1f}%)  "
+          f"maks. geri çekilme {rb_mdd:.1f}%")
+    print("  ↑ Bu model R beklentisiyle tutarlıdır. Sabit marjin modelinde")
+    print("    stopu geniş işlemler çok daha fazla dolar riske attığı için")
+    print("    sonuç birkaç işlemin şansına bağlı kalır.")
 
     print()
     print("Not: 1R = giriş-SL mesafesi. TP1'de çıkış varsayıldı; zaman aşımı ve")
