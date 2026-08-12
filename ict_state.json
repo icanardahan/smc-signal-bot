@@ -1,4 +1,18 @@
 {
+  "1MBABYDOGEUSDT": {
+    "long": {
+      "entry": 0.0003463728,
+      "entry_kind": "OTE",
+      "last_checked_close_time": 1786532699999,
+      "mss_time": 1786524600000,
+      "signal_time": 1786532699999,
+      "sl": 0.00034519285714285715,
+      "status": "pending",
+      "tp1": 0.0003475527428571429,
+      "tp2": 0.0003577,
+      "tp3": 0.000367
+    }
+  },
   "BICOUSDT": {
     "long": {
       "entry": 0.03788558,
@@ -15,16 +29,33 @@
       "tp3": 0.09
     }
   },
+  "CFXUSDT": {
+    "short": {
+      "entry": 0.04207418,
+      "entry_kind": "OTE",
+      "last_checked_close_time": 1786532699999,
+      "mss_time": 1786520100000,
+      "signal_time": 1786532699999,
+      "sl": 0.0422575,
+      "status": "pending",
+      "tp1": 0.04189086,
+      "tp2": 0.04135,
+      "tp3": 0.041
+    }
+  },
   "CGPTUSDT": {
     "long": {
       "entry": 0.02026,
       "entry_kind": "FVG",
+      "exit_price": 0.02098,
+      "exit_time": 1786532699999,
       "fill_time": 1786477199999,
-      "last_checked_close_time": 1786513499999,
+      "last_checked_close_time": 1786532699999,
       "mss_time": 1786435500000,
       "signal_time": 1786468199999,
       "sl": 0.019998535714285715,
-      "status": "tp1_hit",
+      "status": "timeout",
+      "timeout_after_hours": 15.4,
       "tp1": 0.02115,
       "tp2": 0.02369,
       "tp3": 0.02445
@@ -65,7 +96,7 @@
       "entry": 0.017475,
       "entry_kind": "FVG",
       "fill_time": 1786498799999,
-      "last_checked_close_time": 1786513799999,
+      "last_checked_close_time": 1786532999999,
       "mss_time": 1786435200000,
       "signal_time": 1786468499999,
       "sl": 0.016927,
@@ -79,12 +110,15 @@
     "long": {
       "entry": 4361.715,
       "entry_kind": "FVG",
+      "exit_price": 4407.45,
+      "exit_time": 1786533299999,
       "fill_time": 1786471799999,
-      "last_checked_close_time": 1786513799999,
+      "last_checked_close_time": 1786533299999,
       "mss_time": 1786435200000,
       "signal_time": 1786468499999,
       "sl": 4356.772285714286,
-      "status": "tp1_hit",
+      "status": "timeout",
+      "timeout_after_hours": 17.1,
       "tp1": 4397.13,
       "tp2": 4415.18,
       "tp3": null
@@ -141,12 +175,15 @@
     "long": {
       "entry": 4345.67,
       "entry_kind": "FVG",
+      "exit_price": 4392.65,
+      "exit_time": 1786533599999,
       "fill_time": 1786471799999,
-      "last_checked_close_time": 1786514099999,
+      "last_checked_close_time": 1786533599999,
       "mss_time": 1786435200000,
       "signal_time": 1786468799999,
       "sl": 4341.070142857143,
-      "status": "tp1_hit",
+      "status": "timeout",
+      "timeout_after_hours": 17.2,
       "tp1": 4379.35,
       "tp2": 4398.44,
       "tp3": null
