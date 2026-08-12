@@ -33,10 +33,11 @@ from target_sweep import simulate_exit
 TP_R = ict.TP1_R_MULTIPLE   # çıkış 1R (hedef taramasında en tutarlı çıkan)
 
 
-def collect_loose(symbol, daily_all, m5_all, scans):
+def collect_loose(symbol, daily_all, m5_all, scans, h4_all=None):
     """Sinyalleri en gevşek ayarlarla toplar; filtreler sonradan uygulanır."""
     mc = [c["close_time"] for c in m5_all]
     dc = [c["close_time"] for c in daily_all]
+    h4c = [c["close_time"] for c in (h4_all or [])]
     out, seen = [], set()
     for now in scans:
         i5 = bisect_right(mc, now)
@@ -44,7 +45,8 @@ def collect_loose(symbol, daily_all, m5_all, scans):
         if i5 < 120 or idd < 15:
             continue
         try:
-            r = ict.evaluate(daily_all[:idd], m5_all[max(0, i5 - bt.WINDOW_BARS):i5])
+            r = ict.evaluate(daily_all[:idd], m5_all[max(0, i5 - bt.WINDOW_BARS):i5],
+                             h4_all[:bisect_right(h4c, now)] if h4_all else None)
         except Exception:
             continue
         if not r or not r["qualifies"] or r["mss_time"] in seen:
@@ -58,6 +60,8 @@ def collect_loose(symbol, daily_all, m5_all, scans):
             "risk_atr": (r["risk_pct"] / r["atr_pct"]) if r["atr_pct"] else 0,
             "range_rr": abs(r["range_tp"] - r["entry"]) / risk if risk else 0,
             "both_triggers": r["criteria"]["fvg_entry"] and r["criteria"]["ote_entry"],
+            "vwap_ok": r.get("vwap_ok"), "ichimoku_ok": r.get("ichimoku_ok"),
+            "vol_surge": r.get("vol_surge"), "obv_ok": r.get("obv_ok"),
         })
     return out
 
@@ -111,11 +115,12 @@ def main():
         try:
             daily = bt.fetch_range(sym, "1d", start - 120 * 86400_000, end)
             m5 = bt.fetch_range(sym, "5m", start - 4 * 86400_000, end)
+            h4 = bt.fetch_range(sym, "4h", start - 60 * 86400_000, end)
         except Exception:
             continue
         if len(m5) < 500 or len(daily) < 30:
             continue
-        s = collect_loose(sym, daily, m5, scans)
+        s = collect_loose(sym, daily, m5, scans, h4)
         if s:
             data[sym] = m5
             sigs += s
@@ -140,6 +145,14 @@ def main():
         ("sadece NY",                    lambda s: s["session"] == "ny"),
         ("risk>=2ATR + her iki tetik",   lambda s: s["risk_atr"] >= 2.0 and s["both_triggers"]),
         ("risk>=2ATR + R:R>=4",          lambda s: s["risk_atr"] >= 2.0 and s["range_rr"] >= 4),
+        ("VWAP teyidi",                  lambda s: s["vwap_ok"] is True),
+        ("Ichimoku 4H teyidi",           lambda s: s["ichimoku_ok"] is True),
+        ("Hacim patlaması >=1.5x",       lambda s: (s["vol_surge"] or 0) >= 1.5),
+        ("Hacim patlaması >=2.0x",       lambda s: (s["vol_surge"] or 0) >= 2.0),
+        ("OBV teyidi",                   lambda s: s["obv_ok"] is True),
+        ("VWAP + hacim>=1.5x",           lambda s: s["vwap_ok"] is True and (s["vol_surge"] or 0) >= 1.5),
+        ("Ichimoku + hacim>=1.5x",       lambda s: s["ichimoku_ok"] is True and (s["vol_surge"] or 0) >= 1.5),
+        ("risk>=1.5ATR + hacim>=1.5x",   lambda s: s["risk_atr"] >= 1.5 and (s["vol_surge"] or 0) >= 1.5),
     ]
 
     print("=" * 92)

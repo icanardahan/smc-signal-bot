@@ -76,7 +76,11 @@ def fetch_range(symbol, interval, start_ms, end_ms):
     path = os.path.join(CACHE_DIR, key)
     if os.path.exists(path):
         with open(path) as f:
-            return json.load(f)
+            cached = json.load(f)
+        # Hacim alanı sonradan eklendi; eski önbellek dosyaları hacimsiz.
+        # VWAP/OBV/hacim teyidi için bunlar geçersiz, yeniden indirilir.
+        if cached and "volume" in cached[0]:
+            return cached
 
     out = []
     cursor = start_ms
@@ -90,7 +94,8 @@ def fetch_range(symbol, interval, start_ms, end_ms):
             if r[6] <= end_ms:
                 out.append({"open_time": r[0], "close_time": r[6],
                             "open": float(r[1]), "high": float(r[2]),
-                            "low": float(r[3]), "close": float(r[4])})
+                            "low": float(r[3]), "close": float(r[4]),
+                            "volume": float(r[5])})
         nxt = rows[-1][0] + 1
         if nxt <= cursor:
             break
@@ -119,10 +124,12 @@ def scan_times(start_ms, end_ms):
     return out
 
 
-def simulate_symbol(symbol, daily_all, m5_all, scans):
+def simulate_symbol(symbol, daily_all, m5_all, scans, h4_all=None):
     """Bir sembolde botun ne yapacağını baştan sona simüle eder."""
     m5_close = [c["close_time"] for c in m5_all]
     d_close = [c["close_time"] for c in daily_all]
+    h4_all = h4_all or []
+    h4_close = [c["close_time"] for c in h4_all]
     trades = []
     state = {}  # yön -> pozisyon
 
@@ -136,6 +143,8 @@ def simulate_symbol(symbol, daily_all, m5_all, scans):
         # penceresi yeterli (4 gün = 1152 adet 5dk mum).
         m5 = m5_all[max(0, i5 - WINDOW_BARS):i5]
         daily = daily_all[:idd]
+        # 4H swing seviyeleri de yalnızca o ana kadarki mumlardan
+        h4 = h4_all[:bisect_right(h4_close, now)] if h4_all else None
 
         # 1) Takipteki emir/pozisyonları güncelle
         for d in ("long", "short"):
@@ -148,7 +157,7 @@ def simulate_symbol(symbol, daily_all, m5_all, scans):
 
         # 2) Yeni sinyal var mı?
         try:
-            r = ict.evaluate(daily, m5)
+            r = ict.evaluate(daily, m5, h4)
         except Exception:
             continue
         if not r or not r["qualifies"]:
@@ -384,13 +393,14 @@ def main():
         try:
             daily = fetch_range(sym, "1d", start_ms - 120 * 86400_000, end_ms)
             m5 = fetch_range(sym, "5m", start_ms - 4 * 86400_000, end_ms)
+            h4 = fetch_range(sym, "4h", start_ms - 60 * 86400_000, end_ms)
         except Exception as e:
             print(f"[{sym}] veri hatası: {e}")
             continue
         if len(m5) < 500 or len(daily) < 30:
             print(f"[{sym}] yetersiz veri, atlandı")
             continue
-        t = simulate_symbol(sym, daily, m5, scans)
+        t = simulate_symbol(sym, daily, m5, scans, h4)
         all_trades += t
         print(f"[{i}/{len(symbols)}] {sym}: {len(t)} sinyal "
               f"({len(m5)} adet 5dk mum)")

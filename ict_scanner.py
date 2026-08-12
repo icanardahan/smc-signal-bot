@@ -57,6 +57,14 @@ NY_KZ_NY = (7, 10)      # New York AM Kill Zone
 DAILY_INTERVAL = "1d"
 DAILY_LIMIT = 400
 ENTRY_INTERVAL = "5m"          # doküman: MSS/displacement/giriş 5m-3m-1m
+# 5dk mikro seviyelerle günlük makro seviyeler arasında 4 saatlik yapı vardı ve
+# kullanılmıyordu. Stop 5dk fitiline dayanınca gürültü süpürüyor, hedef ise
+# fiyatın gerçekten çekildiği likidite havuzuna denk gelmiyordu.
+H4_INTERVAL = "4h"
+H4_LIMIT = 300                 # ~50 gün
+H4_PIVOT_LEN = 2               # 4H swing: komşu 2 mumdan daha uçta olan mum
+H4_SL_BUFFER = 0.25            # swing'in ötesine eklenecek 4H ATR payı
+USE_H4_LEVELS = True           # SL/TP 4H swing seviyelerinden kurulsun mu
 ENTRY_LIMIT = 1000             # ~3.5 gün
 BIAS_PIVOT_LEN = 3
 DISPLACEMENT_BODY_MULT = 1.5   # displacement gövdesi / önceki 20 mumun ortalaması
@@ -165,6 +173,7 @@ def fetch_klines(symbol, interval, limit):
             "open_time": row[0], "close_time": row[6],
             "open": float(row[1]), "high": float(row[2]),
             "low": float(row[3]), "close": float(row[4]),
+            "volume": float(row[5]),   # hacim/OBV teyidi için
         })
     return out
 
@@ -337,6 +346,141 @@ def ote_zone(sweep_extreme, leg_extreme, bias):
     return leg_extreme + 0.618 * rng, leg_extreme + 0.786 * rng
 
 
+def session_vwap(candles):
+    """NY gününde sıfırlanan VWAP. Yazının önerisi: long'da fiyat VWAP'ın
+    altındaysa 'ucuz', short'ta üstündeyse 'pahalı'."""
+    day = None
+    pv = vol = 0.0
+    v = None
+    for x in candles:
+        d = to_ny(x["open_time"]).date()
+        if d != day:
+            day, pv, vol = d, 0.0, 0.0
+        tp = (x["high"] + x["low"] + x["close"]) / 3
+        q = x.get("volume", 0) or 1.0
+        pv += tp * q
+        vol += q
+        v = pv / vol if vol else None
+    return v
+
+
+def ichimoku_bias(candles):
+    """Ichimoku bulutu: fiyat bulutun üstündeyse 'long', altındaysa 'short',
+    içindeyse None. Yazı bunu 4H bağlam teyidi olarak öneriyor."""
+    n = len(candles)
+    if n < 52 + 26:
+        return None
+    def mid(period, end):
+        w = candles[end - period:end]
+        return (max(x["high"] for x in w) + min(x["low"] for x in w)) / 2
+    # Bulut 26 bar ileri kaydırıldığı için 26 bar öncesinin değerleri geçerli
+    e = n - 26
+    if e < 52:
+        return None
+    span_a = (mid(9, e) + mid(26, e)) / 2
+    span_b = mid(52, e)
+    price = candles[-1]["close"]
+    top, bot = max(span_a, span_b), min(span_a, span_b)
+    if price > top:
+        return "long"
+    if price < bot:
+        return "short"
+    return None
+
+
+def volume_surge(candles, idx, lookback=20):
+    """Displacement mumunun hacmi, önceki mumların ortalamasının kaç katı.
+    ICT'de kurumsal hareketin hacimle gelmesi beklenir."""
+    if idx is None or idx < 1:
+        return None
+    prior = candles[max(0, idx - lookback):idx]
+    vols = [c.get("volume", 0) for c in prior]
+    avg = sum(vols) / len(vols) if vols else 0
+    cur = candles[idx].get("volume", 0)
+    return (cur / avg) if avg > 0 else None
+
+
+def obv_slope(candles, lookback=30):
+    """OBV eğimi: son `lookback` mumda hacim ağırlıklı yön. Pozitifse alıcı
+    baskısı artıyor demektir."""
+    seg = candles[-lookback:]
+    if len(seg) < 3:
+        return None
+    obv = 0.0
+    first = None
+    for i in range(1, len(seg)):
+        q = seg[i].get("volume", 0)
+        if seg[i]["close"] > seg[i - 1]["close"]:
+            obv += q
+        elif seg[i]["close"] < seg[i - 1]["close"]:
+            obv -= q
+        if i == len(seg) // 2:
+            first = obv
+    return None if first is None else obv - first
+
+
+def _vwap_ok(m5, bias):
+    """Yazının kuralı: long'da fiyat VWAP altında (ucuz), short'ta üstünde."""
+    v = session_vwap(m5[-288:])          # son ~1 gün
+    if v is None:
+        return None
+    px = m5[-1]["close"]
+    return px < v if bias == "long" else px > v
+
+
+def _obv_ok(m5, bias):
+    s = obv_slope(m5)
+    if s is None:
+        return None
+    return s > 0 if bias == "long" else s < 0
+
+
+def h4_swings(h4, length=H4_PIVOT_LEN):
+    """4 saatlik grafiğin swing tepe ve dipleri = fiyatın çekildiği likidite
+    havuzları. Pivotlar `length` bar sonra kesinleştiği için ileriye bakış yok:
+    son `length` mum değerlendirmeye alınmaz."""
+    highs, lows = [], []
+    n = len(h4)
+    for i in range(length, n - length):
+        w = h4[i - length:i + length + 1]
+        if h4[i]["high"] == max(x["high"] for x in w):
+            highs.append(h4[i]["high"])
+        if h4[i]["low"] == min(x["low"] for x in w):
+            lows.append(h4[i]["low"])
+    return highs, lows
+
+
+def h4_stop(entry, direction, h4_highs, h4_lows, atr4, fallback):
+    """SL: girişi koruyan en yakın 4H swing'in ötesi. 5dk fitiline değil
+    yapısal seviyeye dayandığı için gürültüyle süpürülmez."""
+    if direction == "long":
+        below = [lv for lv in h4_lows if lv < entry]
+        if not below:
+            return fallback
+        return max(below) - atr4 * H4_SL_BUFFER
+    above = [lv for lv in h4_highs if lv > entry]
+    if not above:
+        return fallback
+    return min(above) + atr4 * H4_SL_BUFFER
+
+
+def h4_targets(entry, direction, h4_highs, h4_lows, min_gap_pct):
+    """TP kademeleri: girişin ötesindeki 4H swing seviyeleri, yakından uzağa."""
+    if direction == "long":
+        cand = sorted(lv for lv in h4_highs if lv > entry)
+    else:
+        cand = sorted((lv for lv in h4_lows if lv < entry), reverse=True)
+    picked = []
+    for lv in cand:
+        if abs(lv - entry) / entry < min_gap_pct / 100:
+            continue
+        if all(abs(lv - p) / p >= min_gap_pct / 100 for p in picked):
+            picked.append(lv)
+        if len(picked) == 3:
+            break
+    return picked + [None] * (3 - len(picked))
+
+
 def pick_targets(entry, direction, range_high, range_low, daily):
     """TP1 dokümanın BİRİNCİL hedefidir: aralığın karşı tarafı. Bu seviye
     başka bir seviyeyle ikame EDİLMEZ — girişe çok yakınsa kurulumun kalan
@@ -388,7 +532,7 @@ def is_valid_setup(entry, sl, tp1, direction, min_rr=MIN_TP1_RR):
     return risk > 0 and abs(tp1 - entry) / risk >= min_rr
 
 
-def analyze_session(m5, daily, bias, ny_date, session):
+def analyze_session(m5, daily, h4, bias, ny_date, session):
     """Tek bir seans için (london / ny) modelin tüm adımlarını uygular."""
     if session == "london":
         range_end_h, open_h, end_h = LONDON_OPEN_H, LONDON_OPEN_H, NY_OPEN_H
@@ -451,6 +595,14 @@ def analyze_session(m5, daily, bias, ny_date, session):
           else sweep_extreme + atr * SL_ATR_MULT)
     atr_pct = 100 * atr / current if current else None
 
+    # SL'i 5dk fitiline değil 4H swing yapısına dayandır (varsa). Girişi
+    # koruyan en yakın 4H swing'in ötesi, gürültüyle süpürülmeyen seviyedir.
+    h4_hi = h4_lo = None
+    if USE_H4_LEVELS and h4 and entry is not None:
+        h4_hi, h4_lo = h4_swings(h4)
+        atr4 = compute_atr(h4, 14)
+        sl = h4_stop(entry, bias, h4_hi, h4_lo, atr4, sl)
+
     # Bıçak sırtı elemesi: stop girişe çok yakınsa (gürültünün içinde) kurulum
     # geçersizdir — emir dolar dolmaz stop olur, R:R ise yanıltıcı yüksektir.
     if entry is not None:
@@ -467,13 +619,20 @@ def analyze_session(m5, daily, bias, ny_date, session):
                                  else (current <= range_tp)):
         range_tp = tp_far1 = tp_far2 = None
 
-    # Kâr alma kademeleri: TP1 sabit R katı (backtest'te en tutarlı seçenek),
-    # TP2 dokümanın aralık hedefi, TP3 bir sonraki likidite seviyesi.
+    # Kâr alma kademeleri.
     if entry is not None and range_tp is not None:
-        risk_abs = abs(entry - sl)
-        tp1 = (entry + TP1_R_MULTIPLE * risk_abs if bias == "long"
-               else entry - TP1_R_MULTIPLE * risk_abs)
-        tp2, tp3 = range_tp, tp_far1
+        if USE_H4_LEVELS and h4_hi is not None:
+            # Hedefler 4H swing seviyeleri = fiyatın gerçekten çekildiği
+            # likidite havuzları. Bulunamazsa eski mantığa düşülür.
+            t1, t2, t3 = h4_targets(entry, bias, h4_hi, h4_lo, MIN_TP_DISTANCE_PCT)
+            tp1 = t1 if t1 is not None else range_tp
+            tp2 = t2 if t2 is not None else range_tp
+            tp3 = t3 if t3 is not None else tp_far1
+        else:
+            risk_abs = abs(entry - sl)
+            tp1 = (entry + TP1_R_MULTIPLE * risk_abs if bias == "long"
+                   else entry - TP1_R_MULTIPLE * risk_abs)
+            tp2, tp3 = range_tp, tp_far1
     else:
         tp1 = tp2 = tp3 = None
     risk = abs(ref - sl)
@@ -494,13 +653,18 @@ def analyze_session(m5, daily, bias, ny_date, session):
         "range_high": range_high, "range_low": range_low,
         "range_tp": range_tp,   # kalite filtresi bu hedefe göre yapılır
         "atr_pct": atr_pct,
+        # --- konfluans teyitleri (test edilmek üzere, filtre olarak zorunlu değil) ---
+        "vwap_ok": _vwap_ok(m5, bias),
+        "ichimoku_ok": (ichimoku_bias(h4) == bias) if h4 else None,
+        "vol_surge": volume_surge(m5, mss_idx),
+        "obv_ok": _obv_ok(m5, bias),
         "risk_pct": (100 * abs(ref - sl) / ref) if ref else None,
         "sweep_time": sweep_candle["open_time"],
         "mss_time": m5[mss_idx]["open_time"] if mss_idx is not None else None,
     }
 
 
-def evaluate(daily, m5):
+def evaluate(daily, m5, h4=None):
     """Veri çekmeden, verilen mumlar üzerinde modeli çalıştırır.
     m5'in son mumu 'şu an' kabul edilir — backtest bu sayede aynı kod yolunu
     geçmiş bir ana dilim vererek kullanabilir."""
@@ -518,7 +682,7 @@ def evaluate(daily, m5):
     for off in range(SESSION_DAYS_BACK):
         d = latest_date - timedelta(days=off)
         for session in ("ny", "london"):
-            r = analyze_session(m5, daily, bias, d, session)
+            r = analyze_session(m5, daily, h4, bias, d, session)
             if r is None or r["mss_time"] is None:
                 continue
             if (now_ms - r["mss_time"]) / 3600000 > SETUP_MAX_AGE_HOURS:
@@ -548,7 +712,10 @@ def evaluate_symbol(symbol):
     time.sleep(REQUEST_SLEEP)
     m5 = fetch_klines(symbol, ENTRY_INTERVAL, ENTRY_LIMIT)
     time.sleep(REQUEST_SLEEP)
-    return evaluate(daily, m5), m5
+    h4 = fetch_klines(symbol, H4_INTERVAL, H4_LIMIT) if USE_H4_LEVELS else None
+    if USE_H4_LEVELS:
+        time.sleep(REQUEST_SLEEP)
+    return evaluate(daily, m5, h4), m5
 
 
 # ---------------- Pozisyon takibi ----------------
