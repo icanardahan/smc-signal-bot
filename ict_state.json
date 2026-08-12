@@ -16,6 +16,20 @@
       "tp3": 0.000367
     }
   },
+  "AVAXUSDT": {
+    "short": {
+      "entry": 6.3815,
+      "entry_kind": "FVG",
+      "last_checked_close_time": 1786554299999,
+      "mss_time": 1786542600000,
+      "signal_time": 1786554299999,
+      "sl": 6.417607142857142,
+      "status": "pending",
+      "tp1": 6.361,
+      "tp2": 6.338,
+      "tp3": 6.317
+    }
+  },
   "BICOUSDT": {
     "long": {
       "entry": 0.03788558,
@@ -71,7 +85,7 @@
       "entry": 16.337220000000002,
       "entry_kind": "OTE",
       "fill_time": 1786543199999,
-      "last_checked_close_time": 1786547399999,
+      "last_checked_close_time": 1786554599999,
       "mss_time": 1786541100000,
       "signal_time": 1786541699999,
       "sl": 16.373214285714287,
@@ -86,7 +100,7 @@
     "short": {
       "entry": 2.0565e-05,
       "entry_kind": "FVG",
-      "last_checked_close_time": 1786547699999,
+      "last_checked_close_time": 1786554899999,
       "mss_time": 1786539600000,
       "signal_time": 1786541999999,
       "sl": 2.0646642857142856e-05,
@@ -130,7 +144,7 @@
     "short": {
       "entry": 0.2952074,
       "entry_kind": "OTE",
-      "last_checked_close_time": 1786547999999,
+      "last_checked_close_time": 1786555199999,
       "mss_time": 1786542000000,
       "signal_time": 1786547999999,
       "sl": 0.29758928571428567,
@@ -211,7 +225,7 @@
     "short": {
       "entry": 0.0539,
       "entry_kind": "FVG",
-      "last_checked_close_time": 1786548599999,
+      "last_checked_close_time": 1786555799999,
       "mss_time": 1786523400000,
       "signal_time": 1786548599999,
       "sl": 0.0572,
