@@ -64,7 +64,14 @@ H4_INTERVAL = "4h"
 H4_LIMIT = 300                 # ~50 gün
 H4_PIVOT_LEN = 2               # 4H swing: komşu 2 mumdan daha uçta olan mum
 H4_SL_BUFFER = 0.25            # swing'in ötesine eklenecek 4H ATR payı
-USE_H4_LEVELS = True           # SL/TP 4H swing seviyelerinden kurulsun mu
+# SL/TP 4H swing seviyelerinden mi kurulsun?
+# VARSAYILAN KAPALI. 180 günlük A/B testi (40 sembol, aynı dönem ve komisyon)
+# 4H seviyelerinin her ölçütte daha kötü olduğunu gösterdi:
+#   4H açık : 90 işlem, isabet %48.9, +0.028R, -12.41$
+#   4H kapalı: 222 işlem, isabet %53.2, +0.063R,  -7.08$
+# Fikir yapısal olarak savunulabilirdi (stop 5dk fitili yerine gerçek seviyede)
+# ama ölçüm desteklemedi. Kod duruyor, USE_H4=1 ile tekrar denenebilir.
+USE_H4_LEVELS = os.environ.get("USE_H4", "0") == "1"
 ENTRY_LIMIT = 1000             # ~3.5 gün
 BIAS_PIVOT_LEN = 3
 DISPLACEMENT_BODY_MULT = 1.5   # displacement gövdesi / önceki 20 mumun ortalaması
