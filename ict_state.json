@@ -3,12 +3,15 @@
     "long": {
       "entry": 0.0003463728,
       "entry_kind": "OTE",
-      "last_checked_close_time": 1786532699999,
+      "exit_time": 1786538099999,
+      "fill_time": 1786533899999,
+      "last_checked_close_time": 1786541699999,
       "mss_time": 1786524600000,
       "signal_time": 1786532699999,
       "sl": 0.00034519285714285715,
-      "status": "pending",
+      "status": "be_stop",
       "tp1": 0.0003475527428571429,
+      "tp1_reached": true,
       "tp2": 0.0003577,
       "tp3": 0.000367
     }
@@ -33,11 +36,13 @@
     "short": {
       "entry": 0.04207418,
       "entry_kind": "OTE",
-      "last_checked_close_time": 1786532699999,
+      "exit_time": 1786537799999,
+      "fill_time": 1786536899999,
+      "last_checked_close_time": 1786541699999,
       "mss_time": 1786520100000,
       "signal_time": 1786532699999,
       "sl": 0.0422575,
-      "status": "pending",
+      "status": "sl_hit",
       "tp1": 0.04189086,
       "tp2": 0.04135,
       "tp3": 0.041
@@ -59,6 +64,34 @@
       "tp1": 0.02115,
       "tp2": 0.02369,
       "tp3": 0.02445
+    }
+  },
+  "COMPUSDT": {
+    "short": {
+      "entry": 16.337220000000002,
+      "entry_kind": "OTE",
+      "last_checked_close_time": 1786541699999,
+      "mss_time": 1786541100000,
+      "signal_time": 1786541699999,
+      "sl": 16.373214285714287,
+      "status": "pending",
+      "tp1": 16.301225714285717,
+      "tp2": 16.17,
+      "tp3": 16.12
+    }
+  },
+  "FLOKIUSDT": {
+    "short": {
+      "entry": 2.0565e-05,
+      "entry_kind": "FVG",
+      "last_checked_close_time": 1786541999999,
+      "mss_time": 1786539600000,
+      "signal_time": 1786541999999,
+      "sl": 2.0646642857142856e-05,
+      "status": "pending",
+      "tp1": 2.0483357142857145e-05,
+      "tp2": 2.032e-05,
+      "tp3": 2.023e-05
     }
   },
   "HAEDALUSDT": {
@@ -95,12 +128,15 @@
     "long": {
       "entry": 0.017475,
       "entry_kind": "FVG",
+      "exit_price": 0.01792,
+      "exit_time": 1786541999999,
       "fill_time": 1786498799999,
-      "last_checked_close_time": 1786532999999,
+      "last_checked_close_time": 1786541999999,
       "mss_time": 1786435200000,
       "signal_time": 1786468499999,
       "sl": 0.016927,
-      "status": "open",
+      "status": "timeout",
+      "timeout_after_hours": 12.0,
       "tp1": 0.02013,
       "tp2": 0.02709,
       "tp3": 0.02998
