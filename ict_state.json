@@ -132,6 +132,20 @@
       "tp3": 0.01833
     }
   },
+  "HOMEUSDT": {
+    "long": {
+      "entry": 0.009220059999999999,
+      "entry_kind": "OTE",
+      "last_checked_close_time": 1786575599999,
+      "mss_time": 1786538700000,
+      "signal_time": 1786575599999,
+      "sl": 0.009069071428571428,
+      "status": "pending",
+      "tp1": 0.00937104857142857,
+      "tp2": 0.00999,
+      "tp3": 0.01227
+    }
+  },
   "IOTXUSDT": {
     "long": {
       "entry": 0.0024549999999999997,
@@ -151,7 +165,7 @@
     "short": {
       "entry": 0.2952074,
       "entry_kind": "OTE",
-      "last_checked_close_time": 1786571999999,
+      "last_checked_close_time": 1786575599999,
       "mss_time": 1786542000000,
       "signal_time": 1786547999999,
       "sl": 0.29758928571428567,
@@ -232,7 +246,7 @@
     "short": {
       "entry": 0.0539,
       "entry_kind": "FVG",
-      "last_checked_close_time": 1786572299999,
+      "last_checked_close_time": 1786575899999,
       "mss_time": 1786523400000,
       "signal_time": 1786548599999,
       "sl": 0.0572,
