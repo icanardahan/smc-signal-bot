@@ -185,7 +185,8 @@ def report(name, trades, mid):
         wins = sum(1 for t in h if t["R"] > 0)
         exp = sum(t["R"] for t in h) / len(h)
         eq = [{"status": "tp1_hit" if t["R"] > 0 else "sl_hit",
-               "move_pct": t["move_pct"], "exit_time": t["t"]} for t in h]
+               "move_pct": t["move_pct"], "exit_time": t["t"],
+               "market_entry": True} for t in h]
         bal, _, _ = bt.simulate_equity(eq)
         line += f"{len(h):>6}{100*wins/len(h):>6.0f}%{exp:>+7.2f}R{bal-100:>+8.1f}$"
     print(line)

@@ -40,10 +40,15 @@ MAKER_FEE = 0.0002  # Binance futures maker ~%0.02
 TAKER_FEE = 0.0005  # Binance futures taker ~%0.05
 
 
-def round_trip_fee(status):
-    """Giriş her zaman maker; çıkış kazançta maker, stopta taker."""
+def round_trip_fee(status, market_entry=False):
+    """Giriş: bekleyen (limit) emirse maker, piyasa emriyse taker.
+    Çıkış: TP'de limit (maker), stop/zaman aşımında piyasa (taker).
+
+    market_entry, kırılım/scalp gibi bir sonraki barın açılışında piyasadan
+    giren stratejiler için True olmalı — aksi halde komisyon eksik hesaplanır."""
+    entry_fee = TAKER_FEE if market_entry else MAKER_FEE
     exit_fee = MAKER_FEE if status in ("tp1_hit", "tp2_hit", "tp3_hit") else TAKER_FEE
-    return MAKER_FEE + exit_fee
+    return entry_fee + exit_fee
 
 
 def top_symbols_by_volume(n):
@@ -234,7 +239,7 @@ def simulate_equity_risk_based(trades):
         notional = risk_usd / (t["risk_pct"] / 100)
         notional = min(notional, bal * LEVERAGE)     # 10x üst sınırı
         pnl = notional * t["move_pct"] / 100
-        pnl -= notional * round_trip_fee(t["status"])
+        pnl -= notional * round_trip_fee(t["status"], t.get("market_entry", False))
         pnl = max(pnl, -bal * MARGIN_PCT)            # izole marjin sınırı
         bal += pnl
         peak = max(peak, bal)
@@ -260,7 +265,7 @@ def simulate_equity(trades):
         margin = bal * MARGIN_PCT
         notional = margin * LEVERAGE
         pnl = notional * t["move_pct"] / 100
-        pnl -= notional * round_trip_fee(t["status"])   # giriş + çıkış komisyonu
+        pnl -= notional * round_trip_fee(t["status"], t.get("market_entry", False))   # giriş + çıkış
         pnl = max(pnl, -margin)                  # izole: en fazla marjin kadar
         bal += pnl
         peak = max(peak, bal)
