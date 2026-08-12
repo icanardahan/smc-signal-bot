@@ -87,12 +87,13 @@
     "short": {
       "entry": 16.337220000000002,
       "entry_kind": "OTE",
+      "exit_time": 1786569899999,
       "fill_time": 1786543199999,
-      "last_checked_close_time": 1786568099999,
+      "last_checked_close_time": 1786571699999,
       "mss_time": 1786541100000,
       "signal_time": 1786541699999,
       "sl": 16.373214285714287,
-      "status": "tp2_hit",
+      "status": "tp3_hit",
       "tp1": 16.301225714285717,
       "tp1_reached": true,
       "tp2": 16.17,
@@ -103,13 +104,15 @@
     "short": {
       "entry": 2.0565e-05,
       "entry_kind": "FVG",
+      "exit_time": 1786571999999,
       "fill_time": 1786567799999,
-      "last_checked_close_time": 1786568399999,
+      "last_checked_close_time": 1786571999999,
       "mss_time": 1786539600000,
       "signal_time": 1786541999999,
       "sl": 2.0646642857142856e-05,
-      "status": "open",
+      "status": "tp3_hit",
       "tp1": 2.0483357142857145e-05,
+      "tp1_reached": true,
       "tp2": 2.032e-05,
       "tp3": 2.023e-05
     }
@@ -148,7 +151,7 @@
     "short": {
       "entry": 0.2952074,
       "entry_kind": "OTE",
-      "last_checked_close_time": 1786568399999,
+      "last_checked_close_time": 1786571999999,
       "mss_time": 1786542000000,
       "signal_time": 1786547999999,
       "sl": 0.29758928571428567,
@@ -229,7 +232,7 @@
     "short": {
       "entry": 0.0539,
       "entry_kind": "FVG",
-      "last_checked_close_time": 1786568699999,
+      "last_checked_close_time": 1786572299999,
       "mss_time": 1786523400000,
       "signal_time": 1786548599999,
       "sl": 0.0572,
