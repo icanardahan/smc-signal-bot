@@ -117,6 +117,58 @@ Her durum değişiminde ayrı bir Telegram bildirimi gider. Her taramanın sonun
 takipteki tüm emir/pozisyonlar için güncel P&L içeren bir özet mesaj gönderilir.
 Kapanan pozisyonlar izlenmeyi bırakır ve o sembol+yönde yeni sinyal alınabilir.
 
+## Otomatik işlem (Binance Futures)
+
+**Varsayılan olarak KAPALI.** Açılmadıkça bot sadece sinyal gönderir.
+
+### Nasıl çalışır
+Sinyal çıktığında borsaya şu emirler kurulur:
+- **Giriş**: PD array seviyesine bekleyen LIMIT emri (maker komisyonu)
+- **SL**: `STOP_MARKET`, pozisyonun tamamını kapatır
+- **TP1/TP2/TP3**: `TAKE_PROFIT_MARKET`, `reduceOnly` — pozisyonun
+  sırasıyla **%50 / %30 / %20**'si
+
+Her taramada borsadaki **gerçek pozisyon** okunur (yerel kayda güvenilmez) ve
+stop kademelendirilir:
+
+| Olay | SL nereye taşınır |
+|---|---|
+| TP1 doldu (%50 kapandı) | **TP1 seviyesine** — o kadarı garanti |
+| TP2 doldu (%80 kapandı) | **TP2 seviyesine** |
+
+Pozisyon büyüklüğü: bakiyenin **%10'u marjin, 10x izole** (nominal = bakiye).
+Aynı anda en fazla `MAX_OPEN_POSITIONS` (10) pozisyon açılır; bir sembolde
+zaten pozisyon varsa yenisi açılmaz.
+
+### Kurulum (üç kademeli, sırayla)
+
+**1. Kuru çalışma** — emir gönderilmez, sadece ne yapacağı loglanır:
+```bash
+BINANCE_TRADING_ENABLED=1  BINANCE_DRY_RUN=1
+```
+
+**2. Testnet** — gerçek fiyat, sahte para. [Binance Futures Testnet](https://testnet.binancefuture.com)
+üzerinden ayrı API anahtarı alınır:
+```bash
+BINANCE_TRADING_ENABLED=1  BINANCE_TESTNET=1  BINANCE_DRY_RUN=0
+```
+
+**3. Gerçek para** — yalnızca testnet'te haftalarca doğruladıktan sonra:
+```bash
+BINANCE_TRADING_ENABLED=1  BINANCE_TESTNET=0  BINANCE_DRY_RUN=0
+```
+
+GitHub'da: anahtarlar **Secrets**'a (`BINANCE_API_KEY`, `BINANCE_API_SECRET`),
+açma/kapama bayrakları **Variables**'a girilir. Anahtarlar loglara yazılmaz.
+
+API anahtarını oluştururken **yalnızca Futures işlem yetkisi** ver; para
+çekme yetkisini **kapalı** bırak ve mümkünse IP kısıtlaması koy.
+
+### ⚠️ Önce şunu bil
+Bu stratejinin **kanıtlanmış kâr avantajı yoktur.** 180 günlük backtest 222
+işlemde **−%7.1** verdi. Otomatik ve kaldıraçlı çalıştırmak, avantajı olmayan
+bir sistemde kaybı hızlandırır. Kaybetmeyi göze alamayacağın parayla kullanma.
+
 ## Sınırlamalar
 - ICT 2022 modeli otomatikleştirilebilir bir yaklaşımdır — dokümandaki
   metodolojinin birebir yerine geçmez. MSS/displacement/giriş 5 dakikalık

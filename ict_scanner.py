@@ -987,10 +987,47 @@ def save_state(state):
         json.dump(state, f, indent=2, sort_keys=True)
 
 
+def _init_trading():
+    """Otomatik işlem açıksa Binance bağlantısını hazırlar.
+    Kapalıysa (varsayılan) None döner ve bot sadece sinyal gönderir."""
+    try:
+        import binance_trader as bt
+    except Exception as e:
+        print(f"Otomatik işlem modülü yüklenemedi: {e}")
+        return None, None
+    if not bt._enabled():
+        return None, None
+    api = bt.BinanceFutures()
+    try:
+        api.load_filters()
+        bal = api.balance_usdt()
+    except Exception as e:
+        print(f"Binance bağlantı hatası, otomatik işlem devre dışı: {e}")
+        return None, None
+    mod = "TESTNET" if bt._testnet() else "GERÇEK PARA"
+    if bt._dry_run():
+        mod += " / KURU ÇALIŞMA (emir gönderilmez)"
+    print(f"Otomatik işlem AÇIK — {mod} | bakiye: {bal:.2f} USDT")
+    send_telegram(f"🤖 <b>Otomatik işlem açık</b>\nMod: {mod}\nBakiye: {bal:.2f} USDT")
+    return bt, api
+
+
 def main():
     state = load_state()
     symbols = get_usdt_symbols()
     print(f"{len(symbols)} sembol taranacak.")
+
+    trader, api = _init_trading()
+    balance = 0.0
+    exch_pos = {}
+    if api:
+        try:
+            balance = api.balance_usdt()
+            exch_pos = api.positions()          # borsadaki GERÇEK pozisyonlar
+            print(f"Borsada açık pozisyon: {len(exch_pos)}")
+        except Exception as e:
+            print(f"Borsa durumu okunamadı: {e}")
+            trader = api = None
 
     sent = events_sent = 0
     live = []
@@ -1018,6 +1055,25 @@ def main():
                     print(f"[{symbol}] {d} {ev}")
                     send_telegram(format_event_message(symbol, d, pos, ev, price))
                     events_sent += 1
+
+                # --- SL kademelendirme: borsadaki gerçek pozisyona göre ---
+                if api and trader and symbol in exch_pos and pos.get("order_qty"):
+                    try:
+                        before = pos.get("sl_level", 0)
+                        pos = trader.trail_stop(
+                            api, symbol, d, exch_pos[symbol]["amt"],
+                            pos["order_qty"],
+                            (pos.get("tp1"), pos.get("tp2"), pos.get("tp3")), pos)
+                        if pos.get("sl_level", 0) > before:
+                            lv = pos["sl_level"]
+                            send_telegram(
+                                f"🔒 <b>SL taşındı</b> — {symbol} {d.upper()}\n"
+                                f"TP{lv} doldu, stop TP{lv} seviyesine çekildi "
+                                f"({pos.get(f'tp{lv}')}). Bu kadarı garanti.")
+                            sym_state[d] = pos
+                    except Exception as e:
+                        print(f"[{symbol}] SL taşıma hatası: {e}")
+
                 if pos.get("status") in LIVE_STATES:
                     live.append((symbol, d, pos, price))
 
@@ -1042,6 +1098,29 @@ def main():
                 "tp2": result["tp2"], "tp3": result["tp3"],
                 "status": "pending",
             }
+            # --- Otomatik emir yerleştirme ---
+            if api and trader:
+                try:
+                    if symbol in exch_pos:
+                        print(f"[{symbol}] borsada zaten pozisyon var, emir açılmadı")
+                    elif len(exch_pos) >= trader.MAX_OPEN_POSITIONS:
+                        print(f"[{symbol}] eşzamanlı pozisyon sınırı ({trader.MAX_OPEN_POSITIONS}), atlandı")
+                    else:
+                        o = trader.open_trade(
+                            api, symbol, d, result["entry"], result["sl"],
+                            (result["tp1"], result["tp2"], result["tp3"]), balance)
+                        if o:
+                            new_pos["order_qty"] = o["qty"]
+                            new_pos["sl_level"] = 0
+                            exch_pos[symbol] = {"amt": 0, "side": d}
+                            send_telegram(
+                                f"📤 <b>Emirler yerleştirildi</b> — {symbol} {d.upper()}\n"
+                                f"Giriş: {o['entry']}  Miktar: {o['qty']}\n"
+                                f"SL ve 3 kademe TP borsaya kuruldu.")
+                except Exception as e:
+                    print(f"[{symbol}] emir hatası: {e}")
+                    send_telegram(f"⚠️ {symbol} emir yerleştirilemedi: {e}")
+
             sym_state[d] = new_pos
             live.append((symbol, d, new_pos, price))
             sent += 1
