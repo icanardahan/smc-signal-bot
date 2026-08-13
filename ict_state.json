@@ -16,6 +16,20 @@
       "tp3": 0.000367
     }
   },
+  "AAVEUSDT": {
+    "short": {
+      "entry": 89.41736,
+      "entry_kind": "OTE",
+      "last_checked_close_time": 1786610099999,
+      "mss_time": 1786607100000,
+      "signal_time": 1786610099999,
+      "sl": 89.63971428571429,
+      "status": "pending",
+      "tp1": 89.19500571428571,
+      "tp2": 88.22,
+      "tp3": 87.57
+    }
+  },
   "AVAXUSDT": {
     "short": {
       "entry": 6.3815,
@@ -136,7 +150,7 @@
     "long": {
       "entry": 0.009220059999999999,
       "entry_kind": "OTE",
-      "last_checked_close_time": 1786602599999,
+      "last_checked_close_time": 1786610399999,
       "mss_time": 1786538700000,
       "signal_time": 1786575599999,
       "sl": 0.009069071428571428,
@@ -212,6 +226,20 @@
       "tp3": null
     }
   },
+  "PEOPLEUSDT": {
+    "long": {
+      "entry": 0.007904999999999999,
+      "entry_kind": "FVG",
+      "last_checked_close_time": 1786610699999,
+      "mss_time": 1786610100000,
+      "signal_time": 1786610699999,
+      "sl": 0.00779175,
+      "status": "pending",
+      "tp1": 0.008018249999999998,
+      "tp2": 0.00826,
+      "tp3": 0.00873
+    }
+  },
   "PUMPUSDT": {
     "long": {
       "entry": 0.002758582,
@@ -225,6 +253,20 @@
       "status": "sl_hit",
       "tp1": 0.002887,
       "tp2": 0.002947,
+      "tp3": null
+    }
+  },
+  "QUICKUSDT": {
+    "long": {
+      "entry": 0.00807,
+      "entry_kind": "FVG",
+      "last_checked_close_time": 1786610699999,
+      "mss_time": 1786608000000,
+      "signal_time": 1786610699999,
+      "sl": 0.007984107142857143,
+      "status": "pending",
+      "tp1": 0.008155892857142858,
+      "tp2": 0.00868,
       "tp3": null
     }
   },
