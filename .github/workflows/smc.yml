@@ -49,8 +49,12 @@ jobs:
         run: |
           git config user.name "smc-signal-bot"
           git config user.email "actions@users.noreply.github.com"
-          if ! git diff --quiet -- smc_state.json; then
-            git add smc_state.json
+          # ÖNCE add, SONRA karşılaştır: `git diff` takip edilmeyen dosyayı
+          # görmez, dolayısıyla state ilk kez oluştuğunda "değişmedi" sanılır ve
+          # commit edilmezdi. O durumda bot bir sonraki koşuda açık emri unutup
+          # aynı emri ikinci kez açardı.
+          [ -f smc_state.json ] && git add smc_state.json
+          if ! git diff --cached --quiet; then
             git commit -m "smc state güncelle"
             for i in 1 2 3 4 5; do
               git pull --rebase --autostash origin main && git push && break
