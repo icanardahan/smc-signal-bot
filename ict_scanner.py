@@ -1063,6 +1063,20 @@ def main():
                     send_telegram(format_event_message(symbol, d, pos, ev, price))
                     events_sent += 1
 
+                # --- Pozisyon açıldıysa koruma emirlerini kur ---
+                # Giriş limit emri dolana kadar reduceOnly emirler reddedilir,
+                # o yüzden SL/TP dolum sonrası kurulur.
+                if api and trader and symbol in exch_pos and pos.get("order_qty"):
+                    try:
+                        if trader.ensure_protection(
+                                api, symbol, d, exch_pos[symbol]["amt"],
+                                pos["sl"], (pos.get("tp1"), pos.get("tp2"), pos.get("tp3"))):
+                            send_telegram(
+                                f"🛡 <b>Koruma kuruldu</b> — {symbol} {d.upper()}\n"
+                                f"Pozisyon açıldı, SL ve 3 kademe TP borsaya yerleştirildi.")
+                    except Exception as e:
+                        print(f"[{symbol}] koruma kurulamadı: {e}")
+
                 # --- SL kademelendirme: borsadaki gerçek pozisyona göre ---
                 if api and trader and symbol in exch_pos and pos.get("order_qty"):
                     try:

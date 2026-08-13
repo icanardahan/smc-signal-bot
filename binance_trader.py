@@ -249,7 +249,12 @@ def compute_quantity(api, symbol, entry_price, balance):
 
 
 def open_trade(api, symbol, direction, entry, sl, tps, balance):
-    """Giriş + SL + kademeli TP emirlerini yerleştirir."""
+    """SADECE giriş (LIMIT) emrini yerleştirir.
+
+    Koruma emirleri burada kurulmaz: Binance `reduceOnly` emirleri açık
+    pozisyon yokken reddeder (-2022). Giriş limit emri dolana kadar pozisyon
+    olmadığı için SL/TP, pozisyon açıldıktan sonra ensure_protection() ile
+    kurulur."""
     entry = api.round_price(symbol, entry)
     qty, notional = compute_quantity(api, symbol, entry, balance)
     if qty <= 0:
@@ -258,22 +263,51 @@ def open_trade(api, symbol, direction, entry, sl, tps, balance):
 
     api.setup_symbol(symbol)
     print(f"  [{symbol}] {direction.upper()} giriş={entry} miktar={qty} "
-          f"nominal≈{notional:.1f} USDT")
+          f"nominal≈{notional:.1f} USDT (koruma emirleri dolum sonrası kurulacak)")
     api.place_entry(symbol, direction, qty, entry)
-    api.place_stop(symbol, direction, api.round_price(symbol, sl))
-
-    # Kademeli TP: son kademe kalan miktarı alır (yuvarlama artığı kaybolmasın)
-    placed = 0.0
-    valid = [(t, s) for t, s in zip(tps, TP_SHARES) if t is not None]
-    for i, (tp, share) in enumerate(valid):
-        q = api.round_qty(symbol, qty - placed) if i == len(valid) - 1 \
-            else api.round_qty(symbol, qty * share)
-        if q <= 0:
-            continue
-        api.place_tp(symbol, direction, q, api.round_price(symbol, tp))
-        placed += q
     return {"symbol": symbol, "direction": direction, "entry": entry,
             "qty": qty, "sl": sl, "tps": list(tps)}
+
+
+def ensure_protection(api, symbol, direction, pos_amt, sl, tps):
+    """Pozisyon açıldıysa SL ve kademeli TP emirlerini kurar (bir kez).
+
+    Her taramada çağrılır; borsadaki açık emirlere bakıp eksikse tamamlar.
+    Böylece giriş emri ne zaman dolarsa dolsun koruma kurulmuş olur."""
+    if not pos_amt:
+        return False
+    try:
+        orders = api.open_orders(symbol)
+    except Exception as e:
+        print(f"  [{symbol}] açık emirler okunamadı: {e}")
+        return False
+
+    has_sl = any(o.get("type") == "STOP_MARKET" for o in orders)
+    has_tp = any(o.get("type") == "TAKE_PROFIT_MARKET" for o in orders)
+    if has_sl and has_tp:
+        return False                      # koruma zaten kurulu
+
+    qty = abs(pos_amt)
+    print(f"  [{symbol}] pozisyon açıldı ({qty}), koruma emirleri kuruluyor")
+
+    if not has_sl:
+        api.place_stop(symbol, direction, api.round_price(symbol, sl))
+
+    if not has_tp:
+        # Son kademe kalan miktarı alır ki yuvarlama artığı açıkta kalmasın
+        placed = 0.0
+        valid = [(t, s) for t, s in zip(tps, TP_SHARES) if t is not None]
+        for i, (tp, share) in enumerate(valid):
+            q = api.round_qty(symbol, qty - placed) if i == len(valid) - 1 \
+                else api.round_qty(symbol, qty * share)
+            if q <= 0:
+                continue
+            try:
+                api.place_tp(symbol, direction, q, api.round_price(symbol, tp))
+                placed += q
+            except Exception as e:
+                print(f"  [{symbol}] TP{i+1} kurulamadı: {e}")
+    return True
 
 
 def trail_stop(api, symbol, direction, pos_amt, original_qty, tps, state):
