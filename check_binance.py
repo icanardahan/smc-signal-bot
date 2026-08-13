@@ -80,6 +80,30 @@ def main():
             if not assets:
                 print("    (assets içinde walletBalance>0 olan yok)")
 
+    # 3) Borsada gerçekten ne var: açık emirler ve pozisyonlar
+    print("\n=== 3) AÇIK EMİRLER ===")
+    try:
+        orders = api.open_orders()
+        if not orders:
+            print("  (açık emir yok)")
+        for o in orders:
+            print(f"    {o.get('symbol'):14s} {o.get('type'):22s} "
+                  f"{o.get('side'):5s} miktar={o.get('origQty')} "
+                  f"fiyat={o.get('price')} stop={o.get('stopPrice')} "
+                  f"reduceOnly={o.get('reduceOnly')}")
+    except Exception as e:
+        print("  HATA:", e)
+
+    print("\n=== 4) AÇIK POZİSYONLAR ===")
+    try:
+        pos = api.positions()
+        if not pos:
+            print("  (açık pozisyon yok — giriş emri henüz dolmamış olabilir)")
+        for s, p in pos.items():
+            print(f"    {s:14s} {p['side']:5s} miktar={p['amt']} giriş={p['entry']}")
+    except Exception as e:
+        print("  HATA:", e)
+
     print("\n=== SONUÇ ===")
     b = api.balance_usdt()
     print(f"  balance_usdt() -> {b:.2f} USDT")
