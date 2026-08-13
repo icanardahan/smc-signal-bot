@@ -136,7 +136,7 @@
     "long": {
       "entry": 0.009220059999999999,
       "entry_kind": "OTE",
-      "last_checked_close_time": 1786575599999,
+      "last_checked_close_time": 1786578899999,
       "mss_time": 1786538700000,
       "signal_time": 1786575599999,
       "sl": 0.009069071428571428,
@@ -165,7 +165,7 @@
     "short": {
       "entry": 0.2952074,
       "entry_kind": "OTE",
-      "last_checked_close_time": 1786575599999,
+      "last_checked_close_time": 1786579199999,
       "mss_time": 1786542000000,
       "signal_time": 1786547999999,
       "sl": 0.29758928571428567,
@@ -246,7 +246,7 @@
     "short": {
       "entry": 0.0539,
       "entry_kind": "FVG",
-      "last_checked_close_time": 1786575899999,
+      "last_checked_close_time": 1786579499999,
       "mss_time": 1786523400000,
       "signal_time": 1786548599999,
       "sl": 0.0572,
