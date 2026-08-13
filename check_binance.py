@@ -94,6 +94,19 @@ def main():
     except Exception as e:
         print("  HATA:", e)
 
+    print("\n=== 3b) AÇIK ALGO (KOŞULLU) EMİRLER ===")
+    try:
+        algos = api.algo_open_orders()
+        if not algos:
+            print("  (açık koşullu emir yok)")
+        for o in algos:
+            print(f"    {o.get('symbol'):14s} {str(o.get('orderType') or o.get('type')):20s} "
+                  f"{o.get('side'):5s} miktar={o.get('quantity')} "
+                  f"tetik={o.get('triggerPrice')} closePos={o.get('closePosition')} "
+                  f"algoId={o.get('algoId')}")
+    except Exception as e:
+        print("  HATA:", e)
+
     print("\n=== 4) AÇIK POZİSYONLAR ===")
     try:
         pos = api.positions()

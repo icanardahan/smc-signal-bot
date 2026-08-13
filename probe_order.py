@@ -69,6 +69,24 @@ def main():
           "stopPrice": uzak_stop, "price": uzak_stop,
           "quantity": q, "timeInForce": "GTC", "reduceOnly": "true"})
 
+    print("\n--- ALGO ucu (yeni, /fapi/v1/algoOrder) ---")
+    for ad, pr in [("ALGO STOP_MARKET + closePosition",
+                    {"algoType": "CONDITIONAL", "symbol": sym, "side": kapat,
+                     "type": "STOP_MARKET", "triggerPrice": uzak_stop,
+                     "closePosition": "true", "workingType": "MARK_PRICE"}),
+                   ("ALGO TAKE_PROFIT_MARKET + reduceOnly",
+                    {"algoType": "CONDITIONAL", "symbol": sym, "side": kapat,
+                     "type": "TAKE_PROFIT_MARKET", "triggerPrice": uzak_tp,
+                     "quantity": q, "reduceOnly": "true", "workingType": "MARK_PRICE"})]:
+        try:
+            r = api._request("POST", "/fapi/v1/algoOrder", pr, signed=True)
+            aid = r.get("algoId")
+            print(f"  ✅ {ad} -> kabul (algoId={aid})")
+            api._request("DELETE", "/fapi/v1/algoOrder", {"algoId": aid}, signed=True)
+            print("      (iptal edildi)")
+        except Exception as e:
+            print(f"  ❌ {ad} -> {str(e)[:110]}")
+
     print("\n--- TAKE PROFIT varyantları ---")
     dene(api, "TAKE_PROFIT_MARKET + quantity + reduceOnly",
          {"symbol": sym, "side": kapat, "type": "TAKE_PROFIT_MARKET",

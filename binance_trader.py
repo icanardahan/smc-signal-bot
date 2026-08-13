@@ -208,21 +208,47 @@ class BinanceFutures:
             "quantity": qty, "price": price,
         })
 
+    # --- Koşullu emirler ---
+    # Binance 2025-12-09'da STOP_MARKET / TAKE_PROFIT_MARKET gibi koşullu
+    # emirleri /fapi/v1/order'dan ALGO servisine taşıdı. Eski uçtan
+    # gönderilirse -4120 (STOP_ORDER_SWITCH_ALGO) döner.
+    # Tetik seviyesi parametresi de "stopPrice" değil "triggerPrice".
+    def _algo_order(self, params):
+        params = dict(params, algoType="CONDITIONAL")
+        if self.dry:
+            print(f"  [KURU] algo emri gönderilmedi: {params}")
+            return {"dry_run": True, "params": params}
+        return self._request("POST", "/fapi/v1/algoOrder", params, signed=True)
+
     def place_stop(self, symbol, side, stop_price):
-        """SL: pozisyonun tamamını kapatır (closePosition), miktar gerekmez."""
-        return self._order({
+        """SL: tetiklenince pozisyonun tamamını piyasadan kapatır."""
+        return self._algo_order({
             "symbol": symbol, "side": "SELL" if side == "long" else "BUY",
-            "type": "STOP_MARKET", "stopPrice": stop_price,
+            "type": "STOP_MARKET", "triggerPrice": stop_price,
             "closePosition": "true", "workingType": "MARK_PRICE",
         })
 
     def place_tp(self, symbol, side, qty, stop_price):
         """Kademeli TP: yalnızca pozisyonu azaltır (reduceOnly)."""
-        return self._order({
+        return self._algo_order({
             "symbol": symbol, "side": "SELL" if side == "long" else "BUY",
-            "type": "TAKE_PROFIT_MARKET", "stopPrice": stop_price,
+            "type": "TAKE_PROFIT_MARKET", "triggerPrice": stop_price,
             "quantity": qty, "reduceOnly": "true", "workingType": "MARK_PRICE",
         })
+
+    def algo_open_orders(self, symbol=None):
+        """Açık koşullu emirler. Normal /fapi/v1/openOrders bunları GÖSTERMEZ —
+        algo emirleri ayrı serviste tutuluyor."""
+        params = {"symbol": symbol} if symbol else {}
+        r = self._request("GET", "/fapi/v1/algoOpenOrders", params, signed=True)
+        return r if isinstance(r, list) else r.get("orders", [])
+
+    def cancel_algo(self, algo_id):
+        if self.dry:
+            print(f"  [KURU] algo emri iptal edilmedi: #{algo_id}")
+            return
+        return self._request("DELETE", "/fapi/v1/algoOrder",
+                             {"algoId": algo_id}, signed=True)
 
     def cancel_order(self, symbol, order_id):
         if self.dry:
@@ -291,13 +317,17 @@ def ensure_protection(api, symbol, direction, pos_amt, sl, tps):
     if not pos_amt:
         return False
     try:
-        orders = api.open_orders(symbol)
+        # Koşullu emirler ALGO servisinde; normal openOrders'da görünmezler
+        orders = api.algo_open_orders(symbol)
     except Exception as e:
-        print(f"  [{symbol}] açık emirler okunamadı: {e}")
+        print(f"  [{symbol}] algo emirleri okunamadı: {e}")
         return False
 
-    has_sl = any(o.get("type") == "STOP_MARKET" for o in orders)
-    has_tp = any(o.get("type") == "TAKE_PROFIT_MARKET" for o in orders)
+    def _tip(o):
+        return o.get("orderType") or o.get("type")
+
+    has_sl = any(_tip(o) == "STOP_MARKET" for o in orders)
+    has_tp = any(_tip(o) == "TAKE_PROFIT_MARKET" for o in orders)
     if has_sl and has_tp:
         return False                      # koruma zaten kurulu
 
@@ -348,10 +378,14 @@ def trail_stop(api, symbol, direction, pos_amt, original_qty, tps, state):
         return state
     print(f"  [{symbol}] TP{new_level} doldu → SL, TP{new_level} seviyesine taşınıyor ({target})")
 
-    # Eski stop emrini iptal et, yenisini kur
-    for o in api.open_orders(symbol):
-        if o.get("type") == "STOP_MARKET":
-            api.cancel_order(symbol, o["orderId"])
+    # Eski stop emrini iptal et, yenisini kur (algo servisi üzerinden)
+    try:
+        for o in api.algo_open_orders(symbol):
+            if (o.get("orderType") or o.get("type")) == "STOP_MARKET":
+                api.cancel_algo(o.get("algoId"))
+    except Exception as e:
+        print(f"  [{symbol}] eski stop iptal edilemedi: {e}")
+        return state                       # iptal edemeden yenisini kurma
     api.place_stop(symbol, direction, api.round_price(symbol, target))
     state["sl_level"] = new_level
     return state
