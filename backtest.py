@@ -74,12 +74,32 @@ def fetch_range(symbol, interval, start_ms, end_ms):
     # (saat bazlı anahtar her koşuda değişip önbelleği işe yaramaz kılıyordu).
     key = f"{symbol}_{interval}_{start_ms // 86400000}_{end_ms // 86400000}.json"
     path = os.path.join(CACHE_DIR, key)
-    if os.path.exists(path):
-        with open(path) as f:
+    # Aynı başlangıç için bitişi birkaç gün farklı bir önbellek dosyası varsa
+    # onu kullan. Backtest açısından verinin 1-3 gün erken bitmesi önemsiz,
+    # ama her gün her şeyi yeniden indirmek saatler kaybettiriyordu.
+    start_day = start_ms // 86400000
+    end_day = end_ms // 86400000
+    onek = f"{symbol}_{interval}_"
+    adaylar = []
+    if os.path.isdir(CACHE_DIR):
+        for fn in os.listdir(CACHE_DIR):
+            if not (fn.startswith(onek) and fn.endswith(".json")):
+                continue
+            try:
+                sd, ed = fn[len(onek):-5].split("_")
+                sd, ed = int(sd), int(ed)
+            except ValueError:
+                continue
+            # Hem başlangıç hem bitiş birkaç gün kayabilir (bugünün tarihi
+            # değiştikçe anahtar da değişiyor). Yakın olanı kullan — backtest
+            # için verinin uçlarının 1-3 gün oynaması önemsiz, ama her gün
+            # her şeyi yeniden indirmek saatler kaybettiriyordu.
+            if abs(sd - start_day) <= 3 and abs(ed - end_day) <= 3:
+                adaylar.append((abs(sd - start_day) + abs(ed - end_day), fn))
+    for _, fn in sorted(adaylar):
+        with open(os.path.join(CACHE_DIR, fn)) as f:
             cached = json.load(f)
-        # Hacim alanı sonradan eklendi; eski önbellek dosyaları hacimsiz.
-        # VWAP/OBV/hacim teyidi için bunlar geçersiz, yeniden indirilir.
-        if cached and "volume" in cached[0]:
+        if cached and "volume" in cached[0]:   # hacimsiz eski dosyalar geçersiz
             return cached
 
     out = []
