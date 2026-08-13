@@ -238,9 +238,14 @@ class BinanceFutures:
 
     def algo_open_orders(self, symbol=None):
         """Açık koşullu emirler. Normal /fapi/v1/openOrders bunları GÖSTERMEZ —
-        algo emirleri ayrı serviste tutuluyor."""
+        algo emirleri ayrı serviste tutuluyor.
+
+        Yol adı "openAlgoOrders" — "algoOpenOrders" DEĞİL. Binance'in kendi
+        doküman sayfası ikincisini yazıyor ama o yol 404 (-5000) veriyor;
+        testnet'e sorularak ölçüldü. Yanlış yol sessiz bir felakete yol
+        açıyordu: liste okunamayınca koruma emirleri hiç kurulmuyordu."""
         params = {"symbol": symbol} if symbol else {}
-        r = self._request("GET", "/fapi/v1/algoOpenOrders", params, signed=True)
+        r = self._request("GET", "/fapi/v1/openAlgoOrders", params, signed=True)
         return r if isinstance(r, list) else r.get("orders", [])
 
     def cancel_algo(self, algo_id):
@@ -406,8 +411,12 @@ def ensure_protection(api, symbol, direction, pos_amt, sl, tps):
         # Koşullu emirler ALGO servisinde; normal openOrders'da görünmezler
         orders = api.algo_open_orders(symbol)
     except Exception as e:
-        print(f"  [{symbol}] algo emirleri okunamadı: {e}")
-        return False
+        # Liste okunamadıysa emirleri KURMAYA DEVAM ET. Eskiden burada
+        # return False vardı ve tek bir okuma hatası pozisyonu tamamen
+        # stopsuz bırakıyordu. Fazladan bir stop zararsız (ilki tetiklenince
+        # Binance diğerini iptal eder), stopsuz pozisyon değil.
+        print(f"  [{symbol}] algo emirleri okunamadı ({e}) — koruma yine de kuruluyor")
+        orders = []
 
     def _tip(o):
         return o.get("orderType") or o.get("type")
