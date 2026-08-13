@@ -81,13 +81,22 @@ SETUP_MAX_AGE_HOURS = 12       # bundan eski kurulumlar bayat sayılır
 SESSION_DAYS_BACK = 2
 SL_ATR_MULT = 0.15             # süpürme ekstremine eklenecek tampon
 # Stop hangi zaman diliminin süpürme ekstremine dayansın?
-#   "m5" : 5dk süpürme fitili (dar, gürültüye açık)
-#   "h4" : süpürmeyi içeren 4H mumun ekstremi (yapısal, ~3 kat geniş)
+#   "m5" : 5dk süpürme fitili (VARSAYILAN)
+#   "h4" : süpürmeyi içeren 4H mumun ekstremi (~3 kat geniş)
+# Aynı TP modu ve eşikle yapılan kontrollü karşılaştırmada 4H stop belirgin
+# şekilde daha kötü çıktı: 5dk +0.109R/+8.25$ vs 4H -0.041R/-52.29$.
+# Geniş stop isabeti kayda değer artırmıyor ama her kaybı büyütüyor.
 SL_MODE = os.environ.get("SL_MODE", "m5")
 # TP1 nasıl belirlensin?
 #   "r"      : giriş ± TP1_R_MULTIPLE × risk (mekanik çarpan)
 #   "range"  : aralığın karşı tarafı (dokümanın yapısal hedefi)
-TP1_MODE = os.environ.get("TP1_MODE", "r")
+# VARSAYILAN "range": 180 günlük A/B testi (40 sembol, aynı dönem/komisyon)
+# TP1'i mekanik 1R yerine yapısal seviyeye taşımanın tek başına belirleyici
+# olduğunu gösterdi:
+#   TP1=1R    : 218 işlem, isabet %50.5, +0.009R, -17.04$
+#   TP1=aralık: 208 işlem, isabet %23.1, +0.246R,  +8.29$
+# İsabet düşer ama hedef uzak olduğu için kazançlar büyür — beklenti 27 kat.
+TP1_MODE = os.environ.get("TP1_MODE", "range")
 # Dokümanın 1:3 şartı KURULUM KALİTESİ filtresi olarak korunur: aralık hedefi
 # en az 3R uzakta olmalı — bu, girişin discount/premium bölgede olmasını
 # matematiksel olarak zorunlu kılar.
