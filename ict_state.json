@@ -36,7 +36,7 @@
     "short": {
       "entry": 89.41736,
       "entry_kind": "OTE",
-      "last_checked_close_time": 1786640699999,
+      "last_checked_close_time": 1786648199999,
       "mss_time": 1786607100000,
       "signal_time": 1786610099999,
       "sl": 89.63971428571429,
@@ -50,7 +50,7 @@
     "long": {
       "entry": 0.1587748,
       "entry_kind": "OTE",
-      "last_checked_close_time": 1786640699999,
+      "last_checked_close_time": 1786648499999,
       "mss_time": 1786611300000,
       "order_qty": 31561.0,
       "signal_time": 1786640699999,
@@ -101,7 +101,7 @@
     "short": {
       "entry": 0.0591212,
       "entry_kind": "OTE",
-      "last_checked_close_time": 1786640699999,
+      "last_checked_close_time": 1786648499999,
       "mss_time": 1786626000000,
       "signal_time": 1786628099999,
       "sl": 0.05931285714285714,
@@ -132,7 +132,7 @@
       "entry": 0.00488212,
       "entry_kind": "OTE",
       "fill_time": 1786631699999,
-      "last_checked_close_time": 1786640699999,
+      "last_checked_close_time": 1786648499999,
       "mss_time": 1786627500000,
       "signal_time": 1786628099999,
       "sl": 0.004901178571428571,
@@ -148,7 +148,7 @@
       "entry": 0.1542934,
       "entry_kind": "OTE",
       "fill_time": 1786631699999,
-      "last_checked_close_time": 1786640699999,
+      "last_checked_close_time": 1786648499999,
       "mss_time": 1786610400000,
       "signal_time": 1786616399999,
       "sl": 0.15483107142857142,
@@ -214,12 +214,13 @@
     "long": {
       "entry": 1.6975,
       "entry_kind": "FVG",
+      "exit_time": 1786640999999,
       "fill_time": 1786637399999,
-      "last_checked_close_time": 1786640699999,
+      "last_checked_close_time": 1786648499999,
       "mss_time": 1786624500000,
       "signal_time": 1786628399999,
       "sl": 1.6739821428571429,
-      "status": "open",
+      "status": "sl_hit",
       "tp1": 1.7210178571428572,
       "tp2": 1.774,
       "tp3": 1.81
@@ -356,7 +357,7 @@
     "short": {
       "entry": 0.0790636,
       "entry_kind": "OTE",
-      "last_checked_close_time": 1786640999999,
+      "last_checked_close_time": 1786648799999,
       "mss_time": 1786611300000,
       "signal_time": 1786622399999,
       "sl": 0.07962678571428572,
@@ -565,7 +566,7 @@
     "long": {
       "entry": 0.0427086,
       "entry_kind": "OTE",
-      "last_checked_close_time": 1786641299999,
+      "last_checked_close_time": 1786649099999,
       "mss_time": 1786618800000,
       "signal_time": 1786622999999,
       "sl": 0.04248285714285715,
