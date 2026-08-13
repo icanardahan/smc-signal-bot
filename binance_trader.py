@@ -263,8 +263,22 @@ def open_trade(api, symbol, direction, entry, sl, tps, balance):
 
     api.setup_symbol(symbol)
     print(f"  [{symbol}] {direction.upper()} giriş={entry} miktar={qty} "
-          f"nominal≈{notional:.1f} USDT (koruma emirleri dolum sonrası kurulacak)")
+          f"nominal≈{notional:.1f} USDT")
     api.place_entry(symbol, direction, qty, entry)
+
+    # Limit emir piyasanın ters tarafındaysa ANINDA dolar. Bu durumda koruma
+    # emirlerini bir sonraki taramaya bırakmak, pozisyonu saatlerce stopsuz
+    # bırakır. Hemen kontrol et; dolduysa SL/TP'yi şimdi kur.
+    if not api.dry:
+        time.sleep(1)                      # borsanın pozisyonu işlemesi için
+        try:
+            pos = api.positions().get(symbol)
+            if pos and pos["amt"]:
+                print(f"  [{symbol}] emir anında doldu → koruma hemen kuruluyor")
+                ensure_protection(api, symbol, direction, pos["amt"], sl, tps)
+        except Exception as e:
+            print(f"  [{symbol}] anlık dolum kontrolü başarısız: {e}")
+
     return {"symbol": symbol, "direction": direction, "entry": entry,
             "qty": qty, "sl": sl, "tps": list(tps)}
 
