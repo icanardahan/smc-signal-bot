@@ -309,6 +309,92 @@ def open_trade(api, symbol, direction, entry, sl, tps, balance):
             "qty": qty, "sl": sl, "tps": list(tps)}
 
 
+def update_stop(api, symbol, direction, new_stop):
+    """Sürüklenen stop: koruma emrini yeni seviyeye taşır.
+
+    ÖNCE yeni emri koyar, SONRA eskisini iptal eder. Ters sırada yapılsaydı
+    ikisi arasında pozisyon korumasız kalırdı. İki `closePosition` stopun bir
+    an birlikte durması zararsız: hangisi tetiklenirse pozisyon kapanır ve
+    Binance diğerini kendisi iptal eder."""
+    new_stop = api.round_price(symbol, new_stop)
+    try:
+        orders = api.algo_open_orders(symbol)
+    except Exception as e:
+        print(f"  [{symbol}] algo emirleri okunamadı, stop taşınmadı: {e}")
+        return False
+
+    def _tip(o):
+        return o.get("orderType") or o.get("type")
+
+    def _trig(o):
+        try:
+            return float(o.get("triggerPrice") or o.get("stopPrice") or 0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    eski = [o for o in orders if _tip(o) == "STOP_MARKET"]
+    if any(_trig(o) == new_stop for o in eski):
+        return False                      # zaten doğru seviyede
+
+    api.place_stop(symbol, direction, new_stop)
+    for o in eski:
+        try:
+            api.cancel_algo(o.get("algoId") or o.get("orderId"))
+        except Exception as e:
+            print(f"  [{symbol}] eski stop iptal edilemedi: {e}")
+    print(f"  [{symbol}] stop taşındı → {new_stop}")
+    return True
+
+
+def risk_based_notional(api, symbol, entry, sl, balance,
+                        risk_pct_of_balance=2.0, max_open=5, leverage=LEVERAGE):
+    """Nominal büyüklük, stop mesafesine göre: her işlemde AYNI dolar riski.
+
+    Sabit marjin kullanılamaz — stop mesafesi işlemden işleme %0.5 ile %8
+    arasında değişiyor, sabit marjinde bu işlem başına 16 kat farklı dolar
+    riski demek. Stratejinin doğrulandığı portföy simülasyonu da (bakiye 499$,
+    azami düşüş %25) bu risk-normalize sizing ile ölçüldü."""
+    risk_frac = abs(entry - sl) / entry
+    if risk_frac <= 0:
+        return 0.0
+    notional = (balance * risk_pct_of_balance / 100) / risk_frac
+    return min(notional, balance / max_open * leverage)
+
+
+def open_trade_trailing(api, symbol, direction, entry, sl, balance,
+                        risk_pct_of_balance=2.0, max_open=5):
+    """Sürüklenen stop modeli: sabit TP yok, yalnızca giriş + koruyucu stop."""
+    entry = api.round_price(symbol, entry)
+    notional = risk_based_notional(api, symbol, entry, sl, balance,
+                                   risk_pct_of_balance, max_open)
+    if notional < api.min_notional(symbol):
+        print(f"  [{symbol}] nominal {notional:.1f} < min {api.min_notional(symbol)}, atlandı")
+        return None
+    qty = api.round_qty(symbol, notional / entry)
+    if qty <= 0:
+        return None
+
+    api.setup_symbol(symbol)
+    print(f"  [{symbol}] {direction.upper()} giriş={entry} miktar={qty} "
+          f"nominal≈{notional:.1f} USDT (risk≈{balance * risk_pct_of_balance / 100:.2f} USDT)")
+    api.place_entry(symbol, direction, qty, entry)
+
+    # Limit emir anında dolarsa pozisyon stopsuz kalmasın
+    if not api.dry:
+        time.sleep(1)
+        try:
+            pos = api.positions().get(symbol)
+            if pos and pos["amt"]:
+                print(f"  [{symbol}] emir anında doldu → stop hemen kuruluyor")
+                ensure_protection(api, symbol, direction, pos["amt"], sl,
+                                  (None, None, None))
+        except Exception as e:
+            print(f"  [{symbol}] anlık dolum kontrolü başarısız: {e}")
+
+    return {"symbol": symbol, "direction": direction, "entry": entry,
+            "qty": qty, "sl": sl, "notional": notional}
+
+
 def ensure_protection(api, symbol, direction, pos_amt, sl, tps):
     """Pozisyon açıldıysa SL ve kademeli TP emirlerini kurar (bir kez).
 
@@ -326,8 +412,11 @@ def ensure_protection(api, symbol, direction, pos_amt, sl, tps):
     def _tip(o):
         return o.get("orderType") or o.get("type")
 
+    istenen_tp = [t for t in tps if t is not None]
     has_sl = any(_tip(o) == "STOP_MARKET" for o in orders)
-    has_tp = any(_tip(o) == "TAKE_PROFIT_MARKET" for o in orders)
+    # Sürüklenen stop modelinde sabit TP istenmez; o durumda TP'yi "kurulu" say,
+    # yoksa her taramada koruma eksik görünür ve boşuna yeniden kurulmaya çalışılır.
+    has_tp = any(_tip(o) == "TAKE_PROFIT_MARKET" for o in orders) or not istenen_tp
     if has_sl and has_tp:
         return False                      # koruma zaten kurulu
 
