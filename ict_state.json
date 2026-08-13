@@ -36,7 +36,7 @@
     "short": {
       "entry": 89.41736,
       "entry_kind": "OTE",
-      "last_checked_close_time": 1786637399999,
+      "last_checked_close_time": 1786640699999,
       "mss_time": 1786607100000,
       "signal_time": 1786610099999,
       "sl": 89.63971428571429,
@@ -44,6 +44,22 @@
       "tp1": 89.19500571428571,
       "tp2": 88.22,
       "tp3": 87.57
+    }
+  },
+  "AGLDUSDT": {
+    "long": {
+      "entry": 0.1587748,
+      "entry_kind": "OTE",
+      "last_checked_close_time": 1786640699999,
+      "mss_time": 1786611300000,
+      "order_qty": 31561.0,
+      "signal_time": 1786640699999,
+      "sl": 0.15793785714285716,
+      "sl_level": 0,
+      "status": "pending",
+      "tp1": 0.1614,
+      "tp2": 0.1622,
+      "tp3": 0.1728
     }
   },
   "AIXBTUSDT": {
@@ -85,7 +101,7 @@
     "short": {
       "entry": 0.0591212,
       "entry_kind": "OTE",
-      "last_checked_close_time": 1786637699999,
+      "last_checked_close_time": 1786640699999,
       "mss_time": 1786626000000,
       "signal_time": 1786628099999,
       "sl": 0.05931285714285714,
@@ -116,7 +132,7 @@
       "entry": 0.00488212,
       "entry_kind": "OTE",
       "fill_time": 1786631699999,
-      "last_checked_close_time": 1786637699999,
+      "last_checked_close_time": 1786640699999,
       "mss_time": 1786627500000,
       "signal_time": 1786628099999,
       "sl": 0.004901178571428571,
@@ -132,7 +148,7 @@
       "entry": 0.1542934,
       "entry_kind": "OTE",
       "fill_time": 1786631699999,
-      "last_checked_close_time": 1786637699999,
+      "last_checked_close_time": 1786640699999,
       "mss_time": 1786610400000,
       "signal_time": 1786616399999,
       "sl": 0.15483107142857142,
@@ -199,7 +215,7 @@
       "entry": 1.6975,
       "entry_kind": "FVG",
       "fill_time": 1786637399999,
-      "last_checked_close_time": 1786637699999,
+      "last_checked_close_time": 1786640699999,
       "mss_time": 1786624500000,
       "signal_time": 1786628399999,
       "sl": 1.6739821428571429,
@@ -261,12 +277,15 @@
     "long": {
       "entry": 0.0047849,
       "entry_kind": "OTE",
-      "last_checked_close_time": 1786637999999,
+      "exit_time": 1786640099999,
+      "fill_time": 1786639199999,
+      "last_checked_close_time": 1786640999999,
       "mss_time": 1786626900000,
       "signal_time": 1786628399999,
       "sl": 0.004768821428571429,
-      "status": "pending",
+      "status": "be_stop",
       "tp1": 0.004800978571428571,
+      "tp1_reached": true,
       "tp2": 0.00488,
       "tp3": 0.00511
     }
@@ -337,7 +356,7 @@
     "short": {
       "entry": 0.0790636,
       "entry_kind": "OTE",
-      "last_checked_close_time": 1786637999999,
+      "last_checked_close_time": 1786640999999,
       "mss_time": 1786611300000,
       "signal_time": 1786622399999,
       "sl": 0.07962678571428572,
@@ -435,12 +454,13 @@
     "long": {
       "entry": 0.007904999999999999,
       "entry_kind": "FVG",
+      "exit_time": 1786639499999,
       "fill_time": 1786625399999,
-      "last_checked_close_time": 1786638299999,
+      "last_checked_close_time": 1786641299999,
       "mss_time": 1786610100000,
       "signal_time": 1786610699999,
       "sl": 0.00779175,
-      "status": "open",
+      "status": "sl_hit",
       "tp1": 0.008018249999999998,
       "tp2": 0.00826,
       "tp3": 0.00873
@@ -545,7 +565,7 @@
     "long": {
       "entry": 0.0427086,
       "entry_kind": "OTE",
-      "last_checked_close_time": 1786638299999,
+      "last_checked_close_time": 1786641299999,
       "mss_time": 1786618800000,
       "signal_time": 1786622999999,
       "sl": 0.04248285714285715,
