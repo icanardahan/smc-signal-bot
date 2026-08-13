@@ -80,10 +80,18 @@ MSS_SEARCH_BARS = 36           # MSS, süpürmeden sonraki 3 saat içinde olmal�
 SETUP_MAX_AGE_HOURS = 12       # bundan eski kurulumlar bayat sayılır
 SESSION_DAYS_BACK = 2
 SL_ATR_MULT = 0.15             # süpürme ekstremine eklenecek tampon
+# Stop hangi zaman diliminin süpürme ekstremine dayansın?
+#   "m5" : 5dk süpürme fitili (dar, gürültüye açık)
+#   "h4" : süpürmeyi içeren 4H mumun ekstremi (yapısal, ~3 kat geniş)
+SL_MODE = os.environ.get("SL_MODE", "m5")
+# TP1 nasıl belirlensin?
+#   "r"      : giriş ± TP1_R_MULTIPLE × risk (mekanik çarpan)
+#   "range"  : aralığın karşı tarafı (dokümanın yapısal hedefi)
+TP1_MODE = os.environ.get("TP1_MODE", "r")
 # Dokümanın 1:3 şartı KURULUM KALİTESİ filtresi olarak korunur: aralık hedefi
 # en az 3R uzakta olmalı — bu, girişin discount/premium bölgede olmasını
 # matematiksel olarak zorunlu kılar.
-MIN_TP1_RR = 3.0
+MIN_TP1_RR = float(os.environ.get("MIN_TP1_RR", "3.0"))
 # Ancak KÂR ALMA bunun tamamını beklemez. 90 günlük backtest'te hedef taraması,
 # çıkışın 1R'de yapılmasının hem en tutarlı hem kârlı seçenek olduğunu gösterdi
 # (dönem ayrımında iki yarıda da +0.14R / +0.15R). 1.5R ve 2R ikinci yarıda
@@ -598,8 +606,21 @@ def analyze_session(m5, daily, h4, bias, ny_date, session):
     }
 
     atr = compute_atr(m5, 14)
-    sl = (sweep_extreme - atr * SL_ATR_MULT if bias == "long"
-          else sweep_extreme + atr * SL_ATR_MULT)
+    ext = sweep_extreme
+    buf = atr * SL_ATR_MULT
+
+    # 4H modu: stop, süpürmeyi İÇEREN 4H mumun ekstremine dayanır. 5dk fitili
+    # o mumun içindeki gürültünün küçük bir parçası olduğu için stop oraya
+    # konunca normal dalgalanmada süpürülüyor.
+    if SL_MODE == "h4" and h4:
+        t = sweep_candle["open_time"]
+        cand = [c for c in h4 if c["open_time"] <= t]
+        if cand:
+            bar = cand[-1]
+            ext = min(ext, bar["low"]) if bias == "long" else max(ext, bar["high"])
+            buf = compute_atr(h4, 14) * SL_ATR_MULT
+
+    sl = ext - buf if bias == "long" else ext + buf
     atr_pct = 100 * atr / current if current else None
 
     # SL'i 5dk fitiline değil 4H swing yapısına dayandır (varsa). Girişi
@@ -635,6 +656,11 @@ def analyze_session(m5, daily, h4, bias, ny_date, session):
             tp1 = t1 if t1 is not None else range_tp
             tp2 = t2 if t2 is not None else range_tp
             tp3 = t3 if t3 is not None else tp_far1
+        elif TP1_MODE == "range":
+            # Yapısal hedef: TP1 doğrudan aralığın karşı tarafı (dokümanın
+            # birincil hedefi). Mekanik R çarpanı yerine fiyatın gerçekten
+            # çekildiği seviye.
+            tp1, tp2, tp3 = range_tp, tp_far1, tp_far2
         else:
             risk_abs = abs(entry - sl)
             tp1 = (entry + TP1_R_MULTIPLE * risk_abs if bias == "long"
