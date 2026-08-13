@@ -3,7 +3,12 @@ name: Binance bağlantı tanılaması
 # Sadece elle tetiklenir. Saniyeler sürer — tam taramayı beklemeden
 # API anahtarı, adres ve bakiye okumasını doğrulamak için.
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      probe:
+        description: "Emir tiplerini de dene (açık pozisyon gerekir)"
+        type: boolean
+        default: false
 
 jobs:
   check:
@@ -21,3 +26,13 @@ jobs:
           BINANCE_TESTNET: ${{ vars.BINANCE_TESTNET || '1' }}
           BINANCE_DRY_RUN: ${{ vars.BINANCE_DRY_RUN || '1' }}
         run: python check_binance.py
+
+      - name: Emir tipi denemesi
+        if: ${{ inputs.probe == true }}
+        env:
+          BINANCE_API_KEY: ${{ secrets.BINANCE_API_KEY }}
+          BINANCE_API_SECRET: ${{ secrets.BINANCE_API_SECRET }}
+          BINANCE_TRADING_ENABLED: ${{ vars.BINANCE_TRADING_ENABLED }}
+          BINANCE_TESTNET: ${{ vars.BINANCE_TESTNET || '1' }}
+          BINANCE_DRY_RUN: '0'
+        run: python probe_order.py
