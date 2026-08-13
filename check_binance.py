@@ -94,6 +94,23 @@ def main():
     except Exception as e:
         print("  HATA:", e)
 
+    # Koşullu emirleri LİSTELEME ucunun adı belgelerde tutarsız
+    # (algoOpenOrders / openAlgoOrders). Yanlış yol 404 -5000 veriyor ve bu
+    # sessizce koruma emirlerinin hiç kurulmamasına yol açıyordu; bu yüzden
+    # doğru yolu tahmin etmek yerine burada ölçüyoruz.
+    print("\n=== 3a) ALGO LİSTELEME UCU DENEMESİ ===")
+    ilk_sym = next(iter(api.positions()), "BTCUSDT")
+    for yol in ("/fapi/v1/algoOpenOrders", "/fapi/v1/openAlgoOrders",
+                "/fapi/v1/allAlgoOrders"):
+        for params in ({"symbol": ilk_sym}, {}):
+            etiket = f"{yol} {'symbol' if params else '(parametresiz)'}"
+            try:
+                r = api._request("GET", yol, params, signed=True)
+                n = len(r) if isinstance(r, list) else len(r.get("orders", []))
+                print(f"  ✅ {etiket} -> {n} kayıt")
+            except Exception as e:
+                print(f"  ❌ {etiket} -> {str(e)[:90]}")
+
     print("\n=== 3b) AÇIK ALGO (KOŞULLU) EMİRLER ===")
     try:
         algos = api.algo_open_orders()
