@@ -1008,7 +1008,14 @@ def _init_trading():
     if bt._dry_run():
         mod += " / KURU ÇALIŞMA (emir gönderilmez)"
     print(f"Otomatik işlem AÇIK — {mod} | bakiye: {bal:.2f} USDT")
-    send_telegram(f"🤖 <b>Otomatik işlem açık</b>\nMod: {mod}\nBakiye: {bal:.2f} USDT")
+
+    uyari = ""
+    if bal <= 0:
+        uyari = ("\n⚠️ Bakiye 0 — bu haliyle emir açılamaz "
+                 "(pozisyon büyüklüğü bakiyeden hesaplanıyor).\n"
+                 "Testnet hesabına bakiye yükle: testnet.binancefuture.com")
+    send_telegram(f"🤖 <b>Otomatik işlem açık</b>\nMod: {mod}\n"
+                  f"Bakiye: {bal:.2f} USDT{uyari}")
     return bt, api
 
 

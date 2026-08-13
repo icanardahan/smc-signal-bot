@@ -136,10 +136,30 @@ class BinanceFutures:
 
     # ---------------- hesap ----------------
     def balance_usdt(self):
-        for b in self._request("GET", "/fapi/v2/balance", signed=True):
-            if b["asset"] == "USDT":
-                return float(b["balance"])
-        return 0.0
+        """USDT bakiyesi. Sıfır dönerse sebebini anlamak için hesaptaki tüm
+        sıfırdan büyük varlıklar loglanır (anahtar bilgisi içermez)."""
+        rows = self._request("GET", "/fapi/v2/balance", signed=True)
+        usdt = None
+        nonzero = []
+        for b in rows:
+            bal = float(b.get("balance", 0) or 0)
+            if b.get("asset") == "USDT":
+                usdt = b
+            if bal > 0:
+                nonzero.append(f"{b.get('asset')}={bal:g}")
+
+        if usdt is None:
+            print(f"  UYARI: hesapta USDT satırı yok. Varlıklar: {[r.get('asset') for r in rows]}")
+            return 0.0
+
+        bal = float(usdt.get("balance", 0) or 0)
+        avail = float(usdt.get("availableBalance", 0) or 0)
+        if bal <= 0:
+            print("  UYARI: USDT bakiyesi 0. Testnet hesabına bakiye yüklenmemiş olabilir.")
+            print(f"  Sıfırdan büyük varlıklar: {nonzero or 'yok'}")
+        else:
+            print(f"  Bakiye: {bal:.2f} USDT (kullanılabilir {avail:.2f})")
+        return bal
 
     def positions(self):
         """Borsadaki GERÇEK açık pozisyonlar (yerel state'e güvenilmez)."""
