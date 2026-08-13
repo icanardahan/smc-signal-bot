@@ -1,0 +1,23 @@
+name: Binance bağlantı tanılaması
+
+# Sadece elle tetiklenir. Saniyeler sürer — tam taramayı beklemeden
+# API anahtarı, adres ve bakiye okumasını doğrulamak için.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Bağlantıyı sına
+        env:
+          BINANCE_API_KEY: ${{ secrets.BINANCE_API_KEY }}
+          BINANCE_API_SECRET: ${{ secrets.BINANCE_API_SECRET }}
+          BINANCE_TRADING_ENABLED: ${{ vars.BINANCE_TRADING_ENABLED }}
+          BINANCE_TESTNET: ${{ vars.BINANCE_TESTNET || '1' }}
+          BINANCE_DRY_RUN: ${{ vars.BINANCE_DRY_RUN || '1' }}
+        run: python check_binance.py
