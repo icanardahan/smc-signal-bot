@@ -30,17 +30,13 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          # --- Otomatik işlem (varsayılan KAPALI) ---
-          # Testnet ileri testi için repo Variables'a şunları ekle:
-          #   BINANCE_TRADING_ENABLED=1
-          #   BINANCE_TESTNET=1
-          #   BINANCE_DRY_RUN=0
-          # Anahtarlar Secrets'ta tutulur, loglara asla yazılmaz.
-          BINANCE_API_KEY: ${{ secrets.BINANCE_API_KEY }}
-          BINANCE_API_SECRET: ${{ secrets.BINANCE_API_SECRET }}
-          BINANCE_TRADING_ENABLED: ${{ vars.BINANCE_TRADING_ENABLED }}
+          # --- Otomatik işlem KAPALI ---
+          # Bot yalnızca sinyal gönderir; Binance'e hiçbir emir gitmez.
+          # Anahtarlar bilerek aktarılmıyor: BINANCE_TRADING_ENABLED repo
+          # Variables'ta 1 kalsa bile anahtar olmadan işlem açılamaz.
+          # Geri açmak için bu üç satırı geri ekle:
+          #   BINANCE_API_KEY / BINANCE_API_SECRET / BINANCE_TRADING_ENABLED
           BINANCE_TESTNET: ${{ vars.BINANCE_TESTNET || '1' }}
-          BINANCE_DRY_RUN: ${{ vars.BINANCE_DRY_RUN || '1' }}
           SMC_MAX_OPEN: ${{ vars.SMC_MAX_OPEN || '5' }}
           SMC_RISK_PCT: ${{ vars.SMC_RISK_PCT || '2.0' }}
         run: python smc_scanner.py

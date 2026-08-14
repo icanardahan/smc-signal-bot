@@ -1,5 +1,5 @@
 """
-SMC Haftalık/Günlük/4H tarayıcı — sürüklenen stoplu, yalnızca LONG.
+SMC Haftalık/Günlük/4H tarayıcı — sürüklenen stoplu, long + short.
 
 Kullanıcının TradingView'de takip ettiği LuxAlgo SMC göstergesinin kavramlarına
 göre çalışır ve baktığı üç zaman dilimini kullanır: haftalık ve günlük yön,
@@ -11,16 +11,19 @@ Akış:
   stop OB'nin altına -> çıkış SÜRÜKLENEN STOP (sabit kâr al YOK).
 
 Neden bu biçim (hepsi 2 yıl, 40 sembol, sabit evren üzerinde ölçüldü):
-  - Sadece long: short beklentisi -0.046R, long +0.116R.
   - Sürüklenen stop: sabit TP1/TP2/TP3 ile +0.122R (t=1.71, gürültü);
     sürüklenen stopla +0.240R (t=2.33). Kazancın çoğu birkaç büyük
     işlemden geldiği için TP1'de yarıyı kapatmak tam da onları kesiyordu.
   - Hedef seviyesi yalnızca R:R filtresi olarak kullanılır; işlem oraya
     varınca kapanmaz.
 
+Yön: her ikisi de gönderilir. Ölçümde short beklentisi -0.046R, long
++0.116R idi — yani shortların avantajı gösterilemedi. Otomatik işlem KAPALI
+olduğu için sinyaller tavsiye niteliğinde ve yön seçimi kullanıcıya ait.
+
 DİKKAT — bu strateji KANITLANMIŞ DEĞİLDİR. Çok sayıda varyant denendiği için
-t=2.33 tek başına yeterli kanıt sayılmaz ve 2026 dilimi eksidir. Bu yüzden
-amaç ileri testtir; otomatik işlem varsayılan olarak KAPALIDIR.
+t=2.33 tek başına yeterli kanıt sayılmaz ve 2026 dilimi eksidir.
+Bot Binance'e hiçbir emir göndermez; yalnızca sinyal üretir.
 
 Kurulum arama ve stop sürükleme mantığı smc_htf.py içindedir; backtest de
 AYNI fonksiyonları çağırır, böylece ikisi ayrışamaz.
@@ -45,7 +48,11 @@ MIN_RR = 1.5
 MAX_RR = 6.0
 LIQ_LEN = 20
 DISCOUNT_MAX = 0.5
-DIR_FILTER = "long"
+# Her iki yön de gönderilir. ÖLÇÜM UYARISI: 2 yıllık backtest'te long
+# beklentisi +0.116R, short -0.046R idi — yani shortların ölçülebilir bir
+# avantajı yok. Otomatik işlem kapalı olduğu için sinyaller tavsiye
+# niteliğinde; short'ları alıp almamak kullanıcının kararı.
+DIR_FILTER = os.environ.get("SMC_DIR", "")     # "long" | "short" | "" (ikisi)
 TRAIL_LEN = 5
 FILL_TIMEOUT_BARS = 30      # 5 gün dolmazsa emir iptal
 HOLD_TIMEOUT_BARS = 60      # 10 gün sonra pozisyon kapatılır
@@ -55,7 +62,11 @@ HOLD_TIMEOUT_BARS = 60      # 10 gün sonra pozisyon kapatılır
 # spread/kayma backtest'in komisyon modelinden yüksek olabilir.
 UNIVERSE_SIZE = int(os.environ.get("SMC_UNIVERSE", "0"))
 WORKERS = int(os.environ.get("SMC_WORKERS", "12"))
-MAX_OPEN = int(os.environ.get("SMC_MAX_OPEN", "5"))
+# Aynı anda izlenecek azami pozisyon. Otomatik işlem kapalı olduğu için bu
+# artık bir risk sınırı değil, sinyal susturucu: sınıra gelince kalan
+# kurulumlar hiç gönderilmiyor (ölçüldü: 9 kurulumun 4'ü bastırılıyordu).
+# 10, portföy simülasyonunda da test edilmiş bir slot sayısı.
+MAX_OPEN = int(os.environ.get("SMC_MAX_OPEN", "10"))
 RISK_PCT_OF_BALANCE = float(os.environ.get("SMC_RISK_PCT", "2.0"))
 LEVERAGE = 10
 
@@ -228,20 +239,51 @@ def pnl_pct(pos, price):
 
 
 # ---------------- Mesajlar ----------------
+def summary_message(taranan, degerlendirilen, kurulum, positions, fiyatlar):
+    """Her taramada gönderilen özet: ne tarandı, ne açık."""
+    canli = [(s, p) for s, p in positions.items() if p["status"] in LIVE_STATES]
+    satir = [f"📊 <b>Tarama özeti</b>",
+             f"Taranan: <b>{taranan}</b> sembol "
+             f"(değerlendirilen {degerlendirilen})",
+             f"Bulunan kurulum: <b>{kurulum}</b>",
+             f"Açık/bekleyen: <b>{len(canli)}</b>/{MAX_OPEN}"]
+
+    if canli:
+        satir.append("")
+        for s, p in sorted(canli, key=lambda x: x[1]["status"]):
+            yon = p["dir"].upper()
+            if p["status"] == "pending":
+                f = fiyatlar.get(s)
+                uzak = f"  (fiyat {_fmt(f)}, %{abs(f - p['entry']) / p['entry'] * 100:.1f} uzakta)" \
+                    if f else ""
+                satir.append(f"⏳ <b>{s}</b> {yon} bekliyor @ {_fmt(p['entry'])}{uzak}")
+            else:
+                f = fiyatlar.get(s)
+                kz = f"  <b>{pnl_pct(p, f):+.2f}%</b>" if f else ""
+                kilit = " 🔒" if p.get("trailed") else ""
+                satir.append(f"▶️ <b>{s}</b> {yon} @ {_fmt(p['entry'])}{kz}\n"
+                             f"     stop {_fmt(p['stop'])}{kilit}")
+    else:
+        satir.append("\nAçık pozisyon yok.")
+    return "\n".join(satir)
+
+
 def signal_message(symbol, sig, bal):
     # Sizing sabit marjin DEĞİL: stop mesafesi işlemden işleme çok değişiyor,
     # sabit marjinde risk 16 kata kadar farklılaşıyor. Doğrulanan sonuç
     # işlem başına bakiyenin %2'sini riske eden sizing ile ölçüldü.
+    uzun = sig["dir"] == "long"
     risk_usdt = bal * RISK_PCT_OF_BALANCE / 100
     notional = min(risk_usdt / (sig["risk_pct"] / 100), bal / MAX_OPEN * LEVERAGE)
     marj = notional / LEVERAGE
     return (
-        f"🟢 <b>{symbol} LONG</b>  (SMC H/G/4S)\n"
+        f"{'🟢' if uzun else '🔴'} <b>{symbol} {sig['dir'].upper()}</b>  (SMC H/G/4S)\n"
         f"<i>{sig['tip']} — order block girişi</i>\n\n"
         f"Giriş (limit) : <b>{_fmt(sig['entry'])}</b>\n"
         f"Başlangıç stop: <b>{_fmt(sig['sl'])}</b>  (%{sig['risk_pct']:.2f})\n"
         f"Referans hedef: {_fmt(sig['tps'][0])}  (R:R {sig['rr']:.2f})\n\n"
-        f"⚠️ <b>Sabit kâr al yok.</b> Stop, 4H yapının arkasından yukarı "
+        f"⚠️ <b>Sabit kâr al yok.</b> Stop, 4H yapının arkasından "
+        f"{'yukarı' if uzun else 'aşağı'} "
         f"sürüklenir; işlem stop ile kapanır. Referans hedef yalnızca "
         f"kurulum filtresidir, orada kapatma yapılmaz.\n\n"
         f"Büyüklük: <b>{notional:.1f} USDT</b> nominal "
@@ -258,7 +300,8 @@ def event_message(symbol, pos, event, candle):
         return (f"✅ <b>{symbol}</b> emir doldu → pozisyon açık\n"
                 f"Giriş {_fmt(p)} | stop {_fmt(pos['stop'])}")
     if event == "trail":
-        return (f"🔒 <b>{symbol}</b> stop yukarı taşındı → <b>{_fmt(pos['stop'])}</b>\n"
+        return (f"🔒 <b>{symbol}</b> stop {'yukarı' if pos['dir'] == 'long' else 'aşağı'} "
+                f"taşındı → <b>{_fmt(pos['stop'])}</b>\n"
                 f"Giriş {_fmt(p)} | fiyat {_fmt(candle['close'])} "
                 f"({pnl_pct(pos, candle['close']):+.2f}%)")
     if event in ("stopped", "trail_stop"):
@@ -306,6 +349,8 @@ def main():
     if not bal:
         bal = 100.0
 
+    fiyatlar = {}
+
     # 1) Açık/bekleyen pozisyonları ilerlet
     for symbol, pos in list(positions.items()):
         if pos["status"] not in LIVE_STATES:
@@ -315,6 +360,8 @@ def main():
         except Exception as e:
             print(f"[{symbol}] veri alınamadı: {e}")
             continue
+        if h4:
+            fiyatlar[symbol] = h4[-1]["close"]
         for event, candle in monitor(pos, h4):
             print(f"  [{symbol}] {event}")
             send_telegram(event_message(symbol, pos, event, candle))
@@ -387,7 +434,7 @@ def main():
         p = positions.get(symbol)
         if p and abs(p.get("entry", 0) - sig["entry"]) < 1e-12:
             continue
-        bulunan.append((sira[symbol], symbol, sig, h4[-1]["close_time"]))
+        bulunan.append((sira[symbol], symbol, sig, h4[-1]["close_time"], h4[-1]["close"]))
 
     print(f"Veri dönen {say['donen']}/{len(aday)} | hata {say['hata']} | "
           f"bayat {say['bayat']} | kısa geçmiş {say['kisa']} | "
@@ -397,10 +444,10 @@ def main():
     if bulunan:
         print(f"{len(bulunan)} kurulum bulundu, {min(len(bulunan), MAX_OPEN - acik)} "
               f"tanesi alınacak (hacim sırasına göre):")
-        for _, s, g, _t in bulunan:
+        for _, s, g, _t, _f in bulunan:
             print(f"    {s:14s} {g['tip']:5s} R:R={g['rr']:.2f} risk=%{g['risk_pct']:.2f}")
 
-    for _, symbol, sig, bar_time in bulunan:
+    for _, symbol, sig, bar_time, son_fiyat in bulunan:
         if acik >= MAX_OPEN:
             print("Eşzamanlı pozisyon sınırı dolu, kalan kurulumlar alınmadı.")
             break
@@ -415,6 +462,7 @@ def main():
             "signal_time": bar_time, "last_bar": bar_time,
             "rr": sig["rr"], "risk_pct": sig["risk_pct"], "tip": sig["tip"],
         }
+        fiyatlar[symbol] = son_fiyat
         acik += 1
 
         if api:
@@ -427,6 +475,8 @@ def main():
                 print(f"  [{symbol}] emir açılamadı: {e}")
 
     save_state(state)
+    send_telegram(summary_message(len(symbols), say["degerlendirilen"],
+                                  len(bulunan), positions, fiyatlar))
     print("Tarama bitti.")
 
 
