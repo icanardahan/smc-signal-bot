@@ -14,6 +14,62 @@
       "stop": 0.03341071428571429,
       "tip": "CHoCH",
       "trailed": false
+    },
+    "BNBUSDT": {
+      "bars": 0,
+      "dir": "short",
+      "entry": 611.41,
+      "last_bar": 1786723199999,
+      "risk_pct": 0.4242243339166844,
+      "rr": 1.630843373493983,
+      "signal_time": 1786723199999,
+      "sl": 614.00375,
+      "status": "pending",
+      "stop": 614.00375,
+      "tip": "BOS",
+      "trailed": false
+    },
+    "BOMEUSDT": {
+      "bars": 0,
+      "dir": "short",
+      "entry": 0.0008019500000000001,
+      "last_bar": 1786723199999,
+      "risk_pct": 3.2327451836149375,
+      "rr": 2.7714561234329818,
+      "signal_time": 1786723199999,
+      "sl": 0.000827875,
+      "status": "pending",
+      "stop": 0.000827875,
+      "tip": "CHoCH",
+      "trailed": false
+    },
+    "CAKEUSDT": {
+      "bars": 0,
+      "dir": "short",
+      "entry": 1.44,
+      "last_bar": 1786723199999,
+      "risk_pct": 1.0999503968253974,
+      "rr": 1.8940248027057505,
+      "signal_time": 1786723199999,
+      "sl": 1.4558392857142857,
+      "status": "pending",
+      "stop": 1.4558392857142857,
+      "tip": "BOS",
+      "trailed": false
+    },
+    "FLOWUSDT": {
+      "bars": 0,
+      "dir": "short",
+      "entry": 0.031810000000000005,
+      "last_bar": 1786723199999,
+      "risk_pct": 1.6302151165401564,
+      "rr": 1.5619834710744045,
+      "signal_time": 1786723199999,
+      "sl": 0.03232857142857143,
+      "status": "pending",
+      "stop": 0.03232857142857143,
+      "tip": "BOS",
+      "trailed": false
     }
   }
 }
