@@ -70,6 +70,48 @@
       "stop": 0.03232857142857143,
       "tip": "BOS",
       "trailed": false
+    },
+    "LQTYUSDT": {
+      "bars": 0,
+      "dir": "short",
+      "entry": 0.2026,
+      "last_bar": 1786723199999,
+      "risk_pct": 2.3013326752221057,
+      "rr": 1.6300268096514785,
+      "signal_time": 1786723199999,
+      "sl": 0.2072625,
+      "status": "pending",
+      "stop": 0.2072625,
+      "tip": "BOS",
+      "trailed": false
+    },
+    "SENTUSDT": {
+      "bars": 0,
+      "dir": "short",
+      "entry": 0.013415,
+      "last_bar": 1786723199999,
+      "risk_pct": 2.648953729833346,
+      "rr": 1.5899497487437149,
+      "signal_time": 1786723199999,
+      "sl": 0.013770357142857143,
+      "status": "pending",
+      "stop": 0.013770357142857143,
+      "tip": "BOS",
+      "trailed": false
+    },
+    "SFPUSDT": {
+      "bars": 0,
+      "dir": "short",
+      "entry": 0.2357,
+      "last_bar": 1786723199999,
+      "risk_pct": 0.6651918298078696,
+      "rr": 3.38041002277903,
+      "signal_time": 1786723199999,
+      "sl": 0.23726785714285714,
+      "status": "pending",
+      "stop": 0.23726785714285714,
+      "tip": "BOS",
+      "trailed": false
     }
   }
 }
