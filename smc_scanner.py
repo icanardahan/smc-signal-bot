@@ -29,10 +29,11 @@ AYNI fonksiyonları çağırır, böylece ikisi ayrışamaz.
 import json
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
 import smc_htf as smc
-from ict_scanner import (BINANCE_BASE, EXCLUDE_BASE_STABLES, EXCLUDE_SUFFIXES,
+from ict_scanner import (BINANCE_BASE, get_usdt_symbols,
                          http_get_json, fetch_klines, send_telegram)
 
 STATE_FILE = os.path.join(os.path.dirname(__file__), "smc_state.json")
@@ -49,7 +50,11 @@ TRAIL_LEN = 5
 FILL_TIMEOUT_BARS = 30      # 5 gün dolmazsa emir iptal
 HOLD_TIMEOUT_BARS = 60      # 10 gün sonra pozisyon kapatılır
 
-UNIVERSE_SIZE = int(os.environ.get("SMC_UNIVERSE", "40"))
+# 0 = tüm USDT pariteleri (~480). Backtest ilk 40'ta yapılmıştı;
+# geniş evren daha çok sinyal verir ama düşük hacimli paritelerde
+# spread/kayma backtest'in komisyon modelinden yüksek olabilir.
+UNIVERSE_SIZE = int(os.environ.get("SMC_UNIVERSE", "0"))
+WORKERS = int(os.environ.get("SMC_WORKERS", "12"))
 MAX_OPEN = int(os.environ.get("SMC_MAX_OPEN", "5"))
 RISK_PCT_OF_BALANCE = float(os.environ.get("SMC_RISK_PCT", "2.0"))
 LEVERAGE = 10
@@ -59,6 +64,7 @@ D1_LIMIT = 300
 W1_LIMIT = 200
 
 BAR_MS = 4 * 3600 * 1000
+STALE_MS = 3 * BAR_MS       # son 4H mum bundan eskiyse sembol atlanır
 
 LIVE_STATES = ("pending", "open")
 CLOSED_STATES = ("stopped", "trail_stop", "expired", "timeout")
@@ -66,21 +72,47 @@ CLOSED_STATES = ("stopped", "trail_stop", "expired", "timeout")
 
 # ---------------- Evren ----------------
 def top_symbols(n=UNIVERSE_SIZE):
-    """Hacme göre ilk n USDT paritesi — backtest'in kullandığı evrenle aynı tanım."""
+    """Hacme göre sıralı, GERÇEKTEN işlem gören USDT pariteleri. n=0 ise hepsi.
+
+    İşlem durumu exchangeInfo'dan doğrulanır. 24 saatlik ticker tek başına
+    yeterli değil: listeden kalkmış pariteler orada hâlâ hacimle görünüyor.
+    Ölçüldü — TOMOUSDT status=BREAK, son mumu 2023-11-20, ama ticker 1.09M
+    hacim bildiriyordu ve tarayıcı ona kurulum üretip emir açacaktı."""
+    canli = set(get_usdt_symbols())
     data = http_get_json(f"{BINANCE_BASE}/api/v3/ticker/24hr")
     rows = []
     for t in data:
         s = t["symbol"]
-        if not s.endswith("USDT") or not s.isascii() or s.endswith(EXCLUDE_SUFFIXES):
-            continue
-        if s[:-4] in EXCLUDE_BASE_STABLES:
+        if s not in canli:
             continue
         try:
             rows.append((float(t["quoteVolume"]), s))
         except (KeyError, ValueError):
             continue
     rows.sort(reverse=True)
-    return [s for _, s in rows[:n]]
+    return [s for _, s in (rows[:n] if n else rows)]
+
+
+def fetch_symbol_data(symbol):
+    """Bir sembol için üç zaman dilimi. Hata olursa (symbol, None) döner."""
+    try:
+        return symbol, (fetch_klines(symbol, "4h", H4_LIMIT),
+                        fetch_klines(symbol, "1d", D1_LIMIT),
+                        fetch_klines(symbol, "1w", W1_LIMIT))
+    except Exception as e:
+        print(f"[{symbol}] veri alınamadı: {e}")
+        return symbol, None
+
+
+def fetch_all(symbols, workers=WORKERS):
+    """Sembol verilerini paralel çeker, tamamlanma sırasıyla verir.
+
+    Seri çekimde 481 sembol ~42 dakika sürüyordu; saatlik cron ile koşular
+    üst üste binerdi. Binance ağırlık limiti dakikada 6000, bu tarama
+    ~3000 ağırlık tutuyor, bu yüzden işçi sayısı ölçülü tutuldu."""
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        for fut in as_completed([ex.submit(fetch_symbol_data, s) for s in symbols]):
+            yield fut.result()
 
 
 # ---------------- Durum ----------------
@@ -285,31 +317,47 @@ def main():
     # 2) Yeni kurulum ara
     symbols = top_symbols()
     print(f"{len(symbols)} sembol taranıyor | açık/bekleyen: {acik}/{MAX_OPEN}")
-    for symbol in symbols:
-        if acik >= MAX_OPEN:
-            print("Eşzamanlı pozisyon sınırına ulaşıldı, tarama durduruldu.")
-            break
-        p = positions.get(symbol)
-        if p and p["status"] in LIVE_STATES:
-            continue
-        try:
-            h4 = fetch_klines(symbol, "4h", H4_LIMIT)
-            d1 = fetch_klines(symbol, "1d", D1_LIMIT)
-            w1 = fetch_klines(symbol, "1w", W1_LIMIT)
-        except Exception as e:
-            print(f"[{symbol}] veri alınamadı: {e}")
-            continue
+    simdi = int(time.time() * 1000)
+    sira = {s: i for i, s in enumerate(symbols)}      # hacim sırası
+    aday = [s for s in symbols
+            if (positions.get(s) or {}).get("status") not in LIVE_STATES]
 
+    # ÖNCE hepsini değerlendir, SONRA seç. Paralel çekimde sonuçlar tamamlanma
+    # sırasıyla geliyor; slotları ilk gelene vermek, 480 sembol içinde seçimi
+    # rastgeleleştirirdi. Hacim sırasına göre seçmek hem belirlenimli hem de
+    # likit pariteleri önceler (backtest de en likit 40 üzerinde yapılmıştı).
+    bulunan = []
+    for symbol, veri in fetch_all(aday):
+        if veri is None:
+            continue
+        h4, d1, w1 = veri
+        # Veri bayatlık koruması: sembol listesi filtresinden sızan ölü bir
+        # piyasa kalırsa, eski mumlar üzerinde kurulum üretilmesin.
+        if not h4 or (simdi - h4[-1]["close_time"]) > STALE_MS:
+            continue
         sig = smc.find_setup(h4, d1, w1, setup_max_age=SETUP_MAX_AGE_BARS,
                              sl_atr_mult=SL_ATR_MULT, min_rr=MIN_RR,
                              max_rr=MAX_RR, liq_len=LIQ_LEN,
                              discount_max=DISCOUNT_MAX, dir_filter=DIR_FILTER)
         if not sig:
             continue
-
         # Aynı order block'a tekrar girme
+        p = positions.get(symbol)
         if p and abs(p.get("entry", 0) - sig["entry"]) < 1e-12:
             continue
+        bulunan.append((sira[symbol], symbol, sig, h4[-1]["close_time"]))
+
+    bulunan.sort()
+    if bulunan:
+        print(f"{len(bulunan)} kurulum bulundu, {min(len(bulunan), MAX_OPEN - acik)} "
+              f"tanesi alınacak (hacim sırasına göre):")
+        for _, s, g, _t in bulunan:
+            print(f"    {s:14s} {g['tip']:5s} R:R={g['rr']:.2f} risk=%{g['risk_pct']:.2f}")
+
+    for _, symbol, sig, bar_time in bulunan:
+        if acik >= MAX_OPEN:
+            print("Eşzamanlı pozisyon sınırı dolu, kalan kurulumlar alınmadı.")
+            break
 
         print(f"[{symbol}] KURULUM {sig['tip']} giriş={sig['entry']:.6g} "
               f"stop={sig['sl']:.6g} R:R={sig['rr']:.2f}")
@@ -318,7 +366,7 @@ def main():
         positions[symbol] = {
             "status": "pending", "dir": sig["dir"], "entry": sig["entry"],
             "sl": sig["sl"], "stop": sig["sl"], "trailed": False, "bars": 0,
-            "signal_time": h4[-1]["close_time"], "last_bar": h4[-1]["close_time"],
+            "signal_time": bar_time, "last_bar": bar_time,
             "rr": sig["rr"], "risk_pct": sig["risk_pct"], "tip": sig["tip"],
         }
         acik += 1
