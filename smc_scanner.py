@@ -60,14 +60,14 @@ HOLD_TIMEOUT_BARS = 60      # 10 gün sonra pozisyon kapatılır
 # 0 = tüm USDT pariteleri (~480). Backtest ilk 40'ta yapılmıştı;
 # geniş evren daha çok sinyal verir ama düşük hacimli paritelerde
 # spread/kayma backtest'in komisyon modelinden yüksek olabilir.
-UNIVERSE_SIZE = int(os.environ.get("SMC_UNIVERSE", "0"))
-WORKERS = int(os.environ.get("SMC_WORKERS", "12"))
+UNIVERSE_SIZE = int(os.environ.get("SMC_UNIVERSE") or "0")
+WORKERS = int(os.environ.get("SMC_WORKERS") or "12")
 # Aynı anda izlenecek azami pozisyon. Otomatik işlem kapalı olduğu için bu
 # artık bir risk sınırı değil, sinyal susturucu: sınıra gelince kalan
 # kurulumlar hiç gönderilmiyor (ölçüldü: 9 kurulumun 4'ü bastırılıyordu).
 # 10, portföy simülasyonunda da test edilmiş bir slot sayısı.
-MAX_OPEN = int(os.environ.get("SMC_MAX_OPEN", "10"))
-RISK_PCT_OF_BALANCE = float(os.environ.get("SMC_RISK_PCT", "2.0"))
+MAX_OPEN = int(os.environ.get("SMC_MAX_OPEN") or "10")
+RISK_PCT_OF_BALANCE = float(os.environ.get("SMC_RISK_PCT") or "2.0")
 LEVERAGE = 10
 
 H4_LIMIT = 1000     # Binance azami; 500 barda bazı kurulumlar kaçıyordu

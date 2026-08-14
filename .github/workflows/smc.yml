@@ -37,7 +37,9 @@ jobs:
           # Geri açmak için bu üç satırı geri ekle:
           #   BINANCE_API_KEY / BINANCE_API_SECRET / BINANCE_TRADING_ENABLED
           BINANCE_TESTNET: ${{ vars.BINANCE_TESTNET || '1' }}
-          SMC_MAX_OPEN: ${{ vars.SMC_MAX_OPEN || '5' }}
+          # Boş bırakılırsa koddaki varsayılan (10) geçerli olur; workflow'da
+          # sabit bir yedek yazmak kod varsayılanını sessizce eziyordu.
+          SMC_MAX_OPEN: ${{ vars.SMC_MAX_OPEN }}
           SMC_RISK_PCT: ${{ vars.SMC_RISK_PCT || '2.0' }}
         run: python smc_scanner.py
 
