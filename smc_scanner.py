@@ -59,7 +59,7 @@ MAX_OPEN = int(os.environ.get("SMC_MAX_OPEN", "5"))
 RISK_PCT_OF_BALANCE = float(os.environ.get("SMC_RISK_PCT", "2.0"))
 LEVERAGE = 10
 
-H4_LIMIT = 500
+H4_LIMIT = 1000     # Binance azami; 500 barda bazı kurulumlar kaçıyordu
 D1_LIMIT = 300
 W1_LIMIT = 200
 
@@ -71,6 +71,26 @@ CLOSED_STATES = ("stopped", "trail_stop", "expired", "timeout")
 
 
 # ---------------- Evren ----------------
+def futures_symbols():
+    """Vadeli (USDⓈ-M perpetual) olarak işlem gören semboller, yoksa None.
+
+    Mum verisi SPOT ucundan geliyor ama emirler VADELİ hesapta açılıyor ve her
+    spot paritesinin vadeli karşılığı yok. Ölçüldü: 481 spot paritesinin
+    152'sinin (%32) vadeli piyasası yok — hacimde ilk 5'teki ALLOUSDT dahil.
+    Bunlar elenmezse Telegram'a sinyal gider, state'e pozisyon yazılır ama
+    emir borsada açılamaz."""
+    import binance_trader as bt
+    base = bt.TESTNET_BASE if bt._testnet() else bt.LIVE_BASE
+    try:
+        info = http_get_json(f"{base}/fapi/v1/exchangeInfo")
+    except Exception as e:
+        print(f"UYARI: vadeli sembol listesi alınamadı ({e}); "
+              "evren filtrelenmedi, bazı sinyallerde emir açılamayabilir.")
+        return None
+    return {s["symbol"] for s in info.get("symbols", [])
+            if s.get("contractType") == "PERPETUAL" and s.get("status") == "TRADING"}
+
+
 def top_symbols(n=UNIVERSE_SIZE):
     """Hacme göre sıralı, GERÇEKTEN işlem gören USDT pariteleri. n=0 ise hepsi.
 
@@ -79,6 +99,11 @@ def top_symbols(n=UNIVERSE_SIZE):
     Ölçüldü — TOMOUSDT status=BREAK, son mumu 2023-11-20, ama ticker 1.09M
     hacim bildiriyordu ve tarayıcı ona kurulum üretip emir açacaktı."""
     canli = set(get_usdt_symbols())
+    vadeli = futures_symbols()
+    if vadeli:
+        atilan = len(canli - vadeli)
+        canli &= vadeli
+        print(f"Vadeli piyasası olmayan {atilan} sembol evrenden çıkarıldı.")
     data = http_get_json(f"{BINANCE_BASE}/api/v3/ticker/24hr")
     rows = []
     for t in data:
@@ -263,7 +288,7 @@ def _init_trading():
     api = bt.BinanceFutures()
     try:
         api.load_filters()
-        bal = api.balance_usdt()
+        bal = api.sizing_balance()
     except Exception as e:
         print(f"Binance bağlantı hatası, otomatik işlem devre dışı: {e}")
         return None, None, 0.0
@@ -293,24 +318,30 @@ def main():
         for event, candle in monitor(pos, h4):
             print(f"  [{symbol}] {event}")
             send_telegram(event_message(symbol, pos, event, candle))
-            if api and event == "trail":
-                try:
-                    bt.update_stop(api, symbol, pos["dir"], pos["stop"])
-                except Exception as e:
-                    print(f"  [{symbol}] stop taşınamadı: {e}")
+
         if api and pos["status"] == "open":
             try:
                 p = api.positions().get(symbol)
                 if p and p["amt"]:
                     bt.ensure_protection(api, symbol, pos["dir"], p["amt"],
                                          pos["stop"], (None, None, None))
+                    # Stopu HER taramada mutabakatla, yalnızca "trail" olayında
+                    # değil. Tek bir başarısız taşıma, state ile borsayı sessizce
+                    # ayrıştırıyordu: bot stopu yeni seviyede sanarken borsada
+                    # eski seviye kalıyor ve aynı seviye için bir daha olay
+                    # üretilmediği için fark hiç kapanmıyordu.
+                    bt.update_stop(api, symbol, pos["dir"], pos["stop"])
             except Exception as e:
-                print(f"  [{symbol}] koruma kontrolü başarısız: {e}")
+                print(f"  [{symbol}] koruma/stop mutabakatı başarısız: {e}")
+
         if api and pos["status"] in CLOSED_STATES:
             try:
-                api.cancel_all(symbol)
+                if pos["status"] == "timeout":
+                    bt.close_position(api, symbol, pos["dir"])
+                else:
+                    bt.cancel_everything(api, symbol)
             except Exception as e:
-                print(f"  [{symbol}] artık emirler temizlenemedi: {e}")
+                print(f"  [{symbol}] kapanış temizliği başarısız: {e}")
 
     acik = sum(1 for p in positions.values() if p["status"] in LIVE_STATES)
 

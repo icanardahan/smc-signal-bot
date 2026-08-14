@@ -263,6 +263,9 @@ def find_setup(h4, daily, weekly, *, setup_max_age=6, sl_atr_mult=0.25,
         i, yon, tip, ob_top, ob_bot, ob_bar = ev
         if len(h4) - 1 - i > setup_max_age:
             break
+        # Not: pencerede ters yönde DAHA YENİ bir kırılım olması teorik olarak
+        # mümkün ama ölçüldüğünde hiç gerçekleşmiyor — structure() bir
+        # kırılımdan sonra yeni pivot oluşmadan tekrar tetiklenmiyor.
         if yon == bias and ob_top is not None:
             if require_choch and tip != "CHoCH":
                 continue

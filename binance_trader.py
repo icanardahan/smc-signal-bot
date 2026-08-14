@@ -159,7 +159,18 @@ class BinanceFutures:
             print(f"  Sıfırdan büyük varlıklar: {nonzero or 'yok'}")
         else:
             print(f"  Bakiye: {bal:.2f} USDT (kullanılabilir {avail:.2f})")
+        self.available_usdt = avail
         return bal
+
+    def sizing_balance(self):
+        """Pozisyon büyüklüğü hesabında kullanılacak bakiye.
+
+        Toplam cüzdan bakiyesi DEĞİL: marjın bir kısmı açık pozisyonlarda
+        bağlı olabilir (ölçüldü: toplam 5009 USDT, kullanılabilir 3244).
+        Toplamla boyutlandırmak, borsanın yetersiz marj diye reddedeceği
+        emirler üretir."""
+        bal = self.balance_usdt()
+        return min(bal, getattr(self, "available_usdt", bal) or bal)
 
     def positions(self):
         """Borsadaki GERÇEK açık pozisyonlar (yerel state'e güvenilmez)."""
@@ -349,6 +360,43 @@ def update_stop(api, symbol, direction, new_stop):
             print(f"  [{symbol}] eski stop iptal edilemedi: {e}")
     print(f"  [{symbol}] stop taşındı → {new_stop}")
     return True
+
+
+def close_position(api, symbol, direction):
+    """Pozisyonu piyasadan kapatır ve artık emirleri temizler.
+
+    Süre aşımında bot pozisyonu 'kapandı' sayıp yalnızca emirleri iptal
+    ediyordu; pozisyonun kendisi borsada AÇIK kalıyor, üstelik stop emri de
+    iptal edildiği için tamamen korumasız ve artık izlenmiyor oluyordu."""
+    pos = api.positions().get(symbol)
+    if not pos or not pos["amt"]:
+        cancel_everything(api, symbol)
+        return False
+    qty = api.round_qty(symbol, abs(pos["amt"]))
+    if qty <= 0:
+        return False
+    print(f"  [{symbol}] süre doldu → pozisyon piyasadan kapatılıyor ({qty})")
+    api._order({"symbol": symbol,
+                "side": "SELL" if direction == "long" else "BUY",
+                "type": "MARKET", "quantity": qty, "reduceOnly": "true"})
+    cancel_everything(api, symbol)
+    return True
+
+
+def cancel_everything(api, symbol):
+    """Hem normal hem ALGO emirlerini iptal eder.
+
+    cancel_all() yalnızca /fapi/v1/allOpenOrders'ı çağırır; koşullu emirler
+    ayrı serviste durduğu için orada görünmez ve iptal edilmez."""
+    try:
+        api.cancel_all(symbol)
+    except Exception as e:
+        print(f"  [{symbol}] normal emirler iptal edilemedi: {e}")
+    try:
+        for o in api.algo_open_orders(symbol):
+            api.cancel_algo(o.get("algoId") or o.get("orderId"))
+    except Exception as e:
+        print(f"  [{symbol}] algo emirleri iptal edilemedi: {e}")
 
 
 def risk_based_notional(api, symbol, entry, sl, balance,
