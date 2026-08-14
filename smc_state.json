@@ -1,15 +1,16 @@
 {
   "positions": {
     "BANKUSDT": {
-      "bars": 4,
+      "bars": 0,
       "dir": "long",
       "entry": 0.03625,
-      "last_bar": 1786708799999,
+      "fill_time": 1786723199999,
+      "last_bar": 1786723199999,
       "risk_pct": 7.832512315270927,
       "rr": 2.0955974842767335,
       "signal_time": 1786651199999,
       "sl": 0.03341071428571429,
-      "status": "pending",
+      "status": "open",
       "stop": 0.03341071428571429,
       "tip": "CHoCH",
       "trailed": false
