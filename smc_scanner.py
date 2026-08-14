@@ -327,14 +327,25 @@ def main():
     # rastgeleleştirirdi. Hacim sırasına göre seçmek hem belirlenimli hem de
     # likit pariteleri önceler (backtest de en likit 40 üzerinde yapılmıştı).
     bulunan = []
+    say = {"donen": 0, "hata": 0, "bayat": 0, "kisa": 0, "degerlendirilen": 0}
     for symbol, veri in fetch_all(aday):
+        say["donen"] += 1
         if veri is None:
+            say["hata"] += 1
             continue
         h4, d1, w1 = veri
         # Veri bayatlık koruması: sembol listesi filtresinden sızan ölü bir
         # piyasa kalırsa, eski mumlar üzerinde kurulum üretilmesin.
         if not h4 or (simdi - h4[-1]["close_time"]) > STALE_MS:
+            say["bayat"] += 1
             continue
+        # find_setup kısa geçmişte None döner; bunu "kurulum yok" ile
+        # karıştırmamak için ayrı sayılıyor, yoksa kaç sembolün gerçekten
+        # değerlendirildiği görünmez.
+        if len(h4) < 120 or len(d1) < 60 or len(w1) < 20:
+            say["kisa"] += 1
+            continue
+        say["degerlendirilen"] += 1
         sig = smc.find_setup(h4, d1, w1, setup_max_age=SETUP_MAX_AGE_BARS,
                              sl_atr_mult=SL_ATR_MULT, min_rr=MIN_RR,
                              max_rr=MAX_RR, liq_len=LIQ_LEN,
@@ -346,6 +357,10 @@ def main():
         if p and abs(p.get("entry", 0) - sig["entry"]) < 1e-12:
             continue
         bulunan.append((sira[symbol], symbol, sig, h4[-1]["close_time"]))
+
+    print(f"Veri dönen {say['donen']}/{len(aday)} | hata {say['hata']} | "
+          f"bayat {say['bayat']} | kısa geçmiş {say['kisa']} | "
+          f"DEĞERLENDİRİLEN {say['degerlendirilen']} | kurulum {len(bulunan)}")
 
     bulunan.sort()
     if bulunan:
