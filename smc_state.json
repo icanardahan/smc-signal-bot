@@ -1,10 +1,10 @@
 {
   "positions": {
     "BANKUSDT": {
-      "bars": 0,
+      "bars": 1,
       "dir": "long",
       "entry": 0.03625,
-      "last_bar": 1786651199999,
+      "last_bar": 1786665599999,
       "risk_pct": 7.832512315270927,
       "rr": 2.0955974842767335,
       "signal_time": 1786651199999,
