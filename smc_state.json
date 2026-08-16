@@ -146,12 +146,14 @@
       "last_bar": 1786881599999,
       "risk_pct": 2.3013326752221057,
       "rr": 1.6300268096514785,
+      "sebep": "4H'de ters y\u00f6nde yap\u0131 k\u0131r\u0131l\u0131m\u0131 olu\u015ftu",
       "signal_time": 1786723199999,
       "sl": 0.2072625,
       "status": "open",
       "stop": 0.1982,
       "tip": "BOS",
-      "trailed": true
+      "trailed": true,
+      "uyarildi": true
     },
     "PAXGUSDT": {
       "bars": 9,
