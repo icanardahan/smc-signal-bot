@@ -36,6 +36,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
 import smc_htf as smc
+import smc_report as rap
 from ict_scanner import (BINANCE_BASE, get_usdt_symbols,
                          http_get_json, fetch_klines, send_telegram)
 
@@ -179,6 +180,13 @@ def _ts(ms):
     return datetime.fromtimestamp(ms / 1000, timezone.utc).strftime("%d.%m %H:%M UTC")
 
 
+def getiri_serisi(h4, bar=540):
+    """Korelasyon için 4H getiri serisi (~90 gün). Ek istek gerektirmez."""
+    kap = [c["close"] for c in h4[-bar:]]
+    return [(kap[i] - kap[i - 1]) / kap[i - 1]
+            for i in range(1, len(kap)) if kap[i - 1]]
+
+
 # ---------------- Pozisyon takibi ----------------
 def monitor(pos, h4):
     """Bekleyen/açık pozisyonu yeni 4H barlarıyla ilerletir.
@@ -274,7 +282,8 @@ def pnl_pct(pos, price):
 
 
 # ---------------- Mesajlar ----------------
-def summary_message(taranan, degerlendirilen, kurulum, positions, fiyatlar, gecmis):
+def summary_message(taranan, degerlendirilen, kurulum, positions, fiyatlar,
+                    gecmis, seriler=None):
     """Her taramada gönderilen özet: ne tarandı, ne açık, toplam kâr/zarar."""
     canli = [(s, p) for s, p in positions.items() if p["status"] in LIVE_STATES]
 
@@ -307,6 +316,18 @@ def summary_message(taranan, degerlendirilen, kurulum, positions, fiyatlar, gecm
     if acik_pnl:
         satir.append(f"Açık pozisyonlar: <b>{acik_pnl:+.2f}$</b>")
         satir.append(f"Toplam: <b>{pnl_usd_toplam + acik_pnl:+.2f}$</b>")
+
+    # Sinyaller bağımsız mı? Kripto pariteleri birlikte hareket ettiği için
+    # N sinyal N ayrı bahis değildir; bu satır kaç bahsin olduğunu söyler.
+    if seriler:
+        yon_sayi = {}
+        for _s, p in canli:
+            yon_sayi[p["dir"]] = yon_sayi.get(p["dir"], 0) + 1
+        n, ort_kor, etkin = rap.etkin_bagimsiz(
+            [seriler[s] for s, _p in canli if s in seriler])
+        sat = rap.korelasyon_satiri(n, ort_kor, etkin, yon_sayi)
+        if sat:
+            satir += ["", sat]
 
     if canli:
         satir.append("")
@@ -416,11 +437,17 @@ def main():
     state = load_state()
     positions = state.setdefault("positions", {})
     gecmis = state.setdefault("gecmis", [])   # kapanan işlemler (kâğıt üzerinde)
+    kosu = state.setdefault("kosu", {})
+    simdi_ts = int(time.time())
+    kosu["sayi"] = kosu.get("sayi", 0) + 1
+    kosu.setdefault("ilk", simdi_ts)
+    kosu["son"] = simdi_ts
     bt, api, bal = _init_trading()
     if not bal:
         bal = 100.0
 
     fiyatlar = {}
+    seriler = {}
 
     # 1) Açık/bekleyen pozisyonları ilerlet
     for symbol, pos in list(positions.items()):
@@ -433,6 +460,7 @@ def main():
             continue
         if h4:
             fiyatlar[symbol] = h4[-1]["close"]
+            seriler[symbol] = getiri_serisi(h4)
 
         olaylar = monitor(pos, h4)
 
@@ -478,11 +506,19 @@ def main():
 
         if pos["status"] in CLOSED_STATES and not pos.get("kaydedildi"):
             pos["kaydedildi"] = True
-            if pos["status"] in ("stopped", "trail_stop", "timeout"):
-                hareket = pnl_pct(pos, pos.get("exit", pos["entry"]))
-                gecmis.append({"sym": symbol, "dir": pos["dir"],
-                               "durum": pos["status"], "move_pct": hareket,
-                               "pnl": pnl_usd(hareket), "t": pos["last_bar"]})
+            dolmus = pos["status"] in ("stopped", "trail_stop", "timeout")
+            hareket = pnl_pct(pos, pos.get("exit", pos["entry"])) if dolmus else None
+            risk = pos.get("risk_pct") or 0
+            gecmis.append({
+                "sym": symbol, "dir": pos["dir"], "tip": pos.get("tip"),
+                "durum": pos["status"], "dolmus": dolmus,
+                "rr": pos.get("rr"), "risk_pct": risk,
+                "hacim_sirasi": pos.get("hacim_sirasi"),
+                "move_pct": hareket,
+                "R": (hareket / risk) if (dolmus and risk) else None,
+                "pnl": pnl_usd(hareket) if dolmus else 0.0,
+                "t_sinyal": pos.get("signal_time"), "t": pos["last_bar"],
+            })
 
         if api and pos["status"] in CLOSED_STATES:
             try:
@@ -537,7 +573,8 @@ def main():
         p = positions.get(symbol)
         if p and abs(p.get("entry", 0) - sig["entry"]) < 1e-12:
             continue
-        bulunan.append((sira[symbol], symbol, sig, h4[-1]["close_time"], h4[-1]["close"]))
+        bulunan.append((sira[symbol], symbol, sig, h4[-1]["close_time"],
+                        h4[-1]["close"], getiri_serisi(h4)))
 
     print(f"Veri dönen {say['donen']}/{len(aday)} | hata {say['hata']} | "
           f"bayat {say['bayat']} | kısa geçmiş {say['kisa']} | "
@@ -548,10 +585,10 @@ def main():
         alinacak = len(bulunan) if not MAX_OPEN else min(len(bulunan), MAX_OPEN - acik)
         print(f"{len(bulunan)} kurulum bulundu, {alinacak} "
               f"tanesi alınacak (hacim sırasına göre):")
-        for _, s, g, _t, _f in bulunan:
+        for _, s, g, _t, _f, _r in bulunan:
             print(f"    {s:14s} {g['tip']:5s} R:R={g['rr']:.2f} risk=%{g['risk_pct']:.2f}")
 
-    for _, symbol, sig, bar_time, son_fiyat in bulunan:
+    for _, symbol, sig, bar_time, son_fiyat, seri in bulunan:
         if MAX_OPEN and acik >= MAX_OPEN:
             print("Eşzamanlı pozisyon sınırı dolu, kalan kurulumlar alınmadı.")
             break
@@ -565,8 +602,10 @@ def main():
             "sl": sig["sl"], "stop": sig["sl"], "trailed": False, "bars": 0,
             "signal_time": bar_time, "last_bar": bar_time,
             "rr": sig["rr"], "risk_pct": sig["risk_pct"], "tip": sig["tip"],
+            "hacim_sirasi": sira.get(symbol),
         }
         fiyatlar[symbol] = son_fiyat
+        seriler[symbol] = seri
         acik += 1
 
         if api:
@@ -580,7 +619,25 @@ def main():
 
     save_state(state)
     send_telegram(summary_message(len(symbols), say["degerlendirilen"],
-                                  len(bulunan), positions, fiyatlar, gecmis))
+                                  len(bulunan), positions, fiyatlar, gecmis,
+                                  seriler))
+
+    # Haftalık karne
+    if simdi_ts - kosu.get("son_rapor", kosu["ilk"]) >= 7 * 86400:
+        kosu["son_rapor"] = simdi_ts
+        hafta = max(1e-9, (simdi_ts - kosu["ilk"]) / (7 * 86400))
+        send_telegram(rap.haftalik_rapor(gecmis, hafta,
+                                         sum(g["pnl"] for g in gecmis)))
+
+    # Günlük nabız — bot sustuğunda fark edebilmek için
+    if simdi_ts - kosu.get("son_nabiz", 0) >= 86400:
+        kosu["son_nabiz"] = simdi_ts
+        gun = (simdi_ts - kosu["ilk"]) / 86400
+        send_telegram(f"💚 <b>Bot ayakta</b> — {kosu['sayi']} koşu, "
+                      f"{gun:.1f} gündür çalışıyor.\n"
+                      f"Son tarama: {len(symbols)} sembol, "
+                      f"{len([1 for p in positions.values() if p['status'] in LIVE_STATES])} "
+                      f"canlı kayıt.")
     print("Tarama bitti.")
 
 

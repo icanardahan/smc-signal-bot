@@ -43,6 +43,27 @@ jobs:
           SMC_RISK_PCT: ${{ vars.SMC_RISK_PCT || '2.0' }}
         run: python smc_scanner.py
 
+      # Tarama çökerse sessiz kalmasın: bu oturumda sessiz hatalar (yanlış algo
+      # yolu, hiç commit edilmeyen state) ancak logu elle okuyunca fark edildi.
+      - name: Çökerse Telegram'a bildir
+        if: failure()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          python - <<'PY'
+          import os, json, urllib.request
+          t = os.environ.get("TELEGRAM_BOT_TOKEN"); c = os.environ.get("TELEGRAM_CHAT_ID")
+          if t and c:
+              msg = ("🚨 <b>SMC taraması BAŞARISIZ</b>\n"
+                     "Bu koşuda sinyal üretilmedi.\n" + os.environ.get("RUN_URL", ""))
+              d = json.dumps({"chat_id": c, "text": msg, "parse_mode": "HTML"}).encode()
+              urllib.request.urlopen(urllib.request.Request(
+                  f"https://api.telegram.org/bot{t}/sendMessage", data=d,
+                  headers={"Content-Type": "application/json"}), timeout=15).read()
+          PY
+
       - name: Durumu (smc_state.json) kaydet
         run: |
           git config user.name "smc-signal-bot"
