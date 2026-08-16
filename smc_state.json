@@ -18,15 +18,15 @@
   ],
   "kosu": {
     "ilk": 1786897777,
-    "sayi": 5,
-    "son": 1786908944
+    "sayi": 6,
+    "son": 1786912795
   },
   "positions": {
     "AGLDUSDT": {
-      "bars": 1,
+      "bars": 2,
       "dir": "short",
       "entry": 0.16075,
-      "last_bar": 1786895999999,
+      "last_bar": 1786910399999,
       "risk_pct": 0.8786936236391981,
       "rr": 2.867256637168118,
       "signal_time": 1786881599999,
@@ -37,11 +37,11 @@
       "trailed": false
     },
     "ATOMUSDT": {
-      "bars": 1,
+      "bars": 2,
       "dir": "short",
       "entry": 1.5045000000000002,
       "fill_time": 1786881599999,
-      "last_bar": 1786895999999,
+      "last_bar": 1786910399999,
       "risk_pct": 1.1240089256041284,
       "rr": 1.9218585005280144,
       "signal_time": 1786852799999,
@@ -84,11 +84,11 @@
       "trailed": false
     },
     "BNBUSDT": {
-      "bars": 8,
+      "bars": 9,
       "dir": "short",
       "entry": 611.41,
       "fill_time": 1786780799999,
-      "last_bar": 1786895999999,
+      "last_bar": 1786910399999,
       "risk_pct": 0.4242243339166844,
       "rr": 1.630843373493983,
       "signal_time": 1786723199999,
@@ -131,11 +131,11 @@
       "trailed": true
     },
     "EPICUSDT": {
-      "bars": 6,
+      "bars": 7,
       "dir": "long",
       "entry": 0.34455,
       "fill_time": 1786809599999,
-      "last_bar": 1786895999999,
+      "last_bar": 1786910399999,
       "risk_pct": 6.67485540145532,
       "rr": 1.5414240236043153,
       "signal_time": 1786766399999,
@@ -146,10 +146,10 @@
       "trailed": true
     },
     "FLOWUSDT": {
-      "bars": 12,
+      "bars": 13,
       "dir": "short",
       "entry": 0.031810000000000005,
-      "last_bar": 1786895999999,
+      "last_bar": 1786910399999,
       "risk_pct": 1.6302151165401564,
       "rr": 1.5619834710744045,
       "signal_time": 1786723199999,
@@ -179,11 +179,11 @@
       "uyarildi": true
     },
     "PAXGUSDT": {
-      "bars": 10,
+      "bars": 11,
       "dir": "short",
       "entry": 4379.635,
       "fill_time": 1786751999999,
-      "last_bar": 1786895999999,
+      "last_bar": 1786910399999,
       "risk_pct": 0.6333698062575047,
       "rr": 1.6036822453972053,
       "signal_time": 1786737599999,
@@ -194,10 +194,10 @@
       "trailed": true
     },
     "SENTUSDT": {
-      "bars": 12,
+      "bars": 13,
       "dir": "short",
       "entry": 0.013415,
-      "last_bar": 1786895999999,
+      "last_bar": 1786910399999,
       "risk_pct": 2.648953729833346,
       "rr": 1.5899497487437149,
       "signal_time": 1786723199999,
@@ -224,10 +224,10 @@
       "trailed": false
     },
     "TAOUSDT": {
-      "bars": 11,
+      "bars": 12,
       "dir": "short",
       "entry": 203.45,
-      "last_bar": 1786895999999,
+      "last_bar": 1786910399999,
       "risk_pct": 1.344661728048328,
       "rr": 2.10182767624018,
       "signal_time": 1786737599999,
@@ -238,11 +238,11 @@
       "trailed": false
     },
     "TWTUSDT": {
-      "bars": 0,
+      "bars": 1,
       "dir": "short",
       "entry": 0.40485000000000004,
       "fill_time": 1786895999999,
-      "last_bar": 1786895999999,
+      "last_bar": 1786910399999,
       "risk_pct": 1.549515693643141,
       "rr": 1.5701679476231254,
       "signal_time": 1786852799999,
