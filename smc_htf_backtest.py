@@ -47,6 +47,16 @@ PAY = (0.5, 0.3, 0.2)      # TP1/TP2/TP3 kapatma oranları (canlı botla aynı)
 #   trail  : TP yok, stop yapının arkasından sürüklenir
 #   runner : TP1'de %50, kalan %50 sürüklenen stopla taşınır
 EXIT_MODE = os.environ.get("EXIT_MODE", "scale")
+# Açık pozisyonda TERS yönde 4H yapı kırılımı olursa kapat.
+# ÖLÇÜLDÜ ve KÖTÜ: +0.240R -> +0.031R, net +390.79$ -> -29.70$ ve 2. yarı
+# eksiye düşüyor. Sebebi TP1'de yarıyı kapatmakla aynı: kâr birkaç büyük
+# işlemden geliyor, ters kırılım ise trend içi normal geri çekilmelerde de
+# oluşuyor ve tam o işlemleri erken kesiyor. Bu yüzden canlı bot yalnızca
+# UYARIYOR, pozisyonu kapatmıyor.
+# Not: structure() olayları yalnızca kendi barına kadarki veriye dayanır
+# (pivotlar geriye bakar), bu yüzden tek seferde hesaplamak ileriye bakış
+# yaratmaz.
+EXIT_ON_BREAK = os.environ.get("EXIT_ON_BREAK", "0") == "1"
 TRAIL_LEN = 5              # stopun arkasına çekileceği pivot uzunluğu
 DIR_FILTER = os.environ.get("DIR_FILTER", "")   # "long" | "short" | ""
 
@@ -63,7 +73,7 @@ def evaluate(h4, daily, weekly):
                           dir_filter=DIR_FILTER or None)
 
 
-def simulate(sig, h4, i):
+def simulate(sig, h4, i, ters=None):
     """Emir dolar mı, sonra kademeli çıkış nasıl gider?
 
     Canlı bottaki davranışın birebir aynısı: TP1'de %50 kapanır ve stop
@@ -109,6 +119,10 @@ def simulate(sig, h4, i):
             return (R, durum, hareket, k)
         if k == fill:                     # dolum mumunda TP sayılmaz
             continue
+
+        if EXIT_ON_BREAK and ters and ters.get(k) not in (None, 1 if lg else -1):
+            kapat(kalan, c["close"])
+            return (R, "yapi_bozuldu", hareket, k)
         while vurulan < 3 and EXIT_MODE != "trail":
             t = tps[vurulan]
             if t is None:
@@ -167,6 +181,11 @@ def main():
         if len(h4) < 300 or len(d1) < 80 or len(w1) < 25:
             continue
 
+        ters = {}
+        if EXIT_ON_BREAK:
+            for ev in smc.structure(h4, smc.INTERNAL_LEN)[0]:
+                ters[ev[0]] = ev[1]
+
         dc = [c["close_time"] for c in d1]
         wc = [c["close_time"] for c in w1]
         say = 0
@@ -182,7 +201,7 @@ def main():
             if anahtar == son_ob:            # aynı order block'a tekrar girme
                 continue
             son_ob = anahtar
-            r, durum, hareket, cikis = simulate(sig, h4, k + 1)
+            r, durum, hareket, cikis = simulate(sig, h4, k + 1, ters)
             rows.append({"sym": sym, "R": r, "status": durum, "move_pct": hareket,
                          "risk_pct": sig["risk_pct"], "t": h4[cikis]["close_time"],
                          "tip": sig["tip"], "rr": sig["rr"], "dir": sig["dir"],

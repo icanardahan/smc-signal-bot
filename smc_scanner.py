@@ -321,6 +321,7 @@ def summary_message(taranan, degerlendirilen, kurulum, positions, fiyatlar, gecm
                 f = fiyatlar.get(s)
                 kz = f"  <b>{pnl_pct(p, f):+.2f}%</b>" if f else ""
                 kilit = " 🔒" if p.get("trailed") else ""
+                kilit += " ⚠️yapı" if p.get("uyarildi") else ""
                 satir.append(f"▶️ <b>{s}</b> {yon} @ {_fmt(p['entry'])}{kz}\n"
                              f"     stop {_fmt(p['stop'])}{kilit}")
     else:
@@ -376,6 +377,11 @@ def event_message(symbol, pos, event, candle):
                 f"Sonuç: <b>{r:+.2f}%</b>")
     if event == "expired":
         return f"⚪️ <b>{symbol}</b> emir {FILL_TIMEOUT_BARS // 6} günde dolmadı, iptal."
+    if event == "yapi_uyari":
+        return (f"⚠️ <b>{symbol}</b> {pos['dir'].upper()} — <b>yapı bozuldu</b>: "
+                f"{pos.get('sebep', '')}.\n"
+                f"Pozisyon KAPATILMADI, çıkış hâlâ sürüklenen stopta "
+                f"({_fmt(pos['stop'])}). Erken kapatmak istersen karar senin.")
     if event == "invalidated":
         return (f"❌ <b>{symbol}</b> {pos['dir'].upper()} kurulumu GEÇERSİZ — "
                 f"{pos.get('sebep', 'yapı bozuldu')}.\nBekleyen emir listeden çıkarıldı; "
@@ -430,17 +436,24 @@ def main():
 
         olaylar = monitor(pos, h4)
 
-        # Bekleyen emrin dayandığı YAPI hâlâ ayakta mı? Bozulduysa emri
-        # beklemeye devam etmenin anlamı yok.
-        if pos["status"] == "pending":
+        # Dayandığı YAPI hâlâ ayakta mı?
+        #   bekleyen -> emri beklemenin anlamı yok, listeden düşer
+        #   AÇIK     -> yalnızca UYARILIR, pozisyon kapatılmaz. Çıkışı
+        #               değiştirmek stratejiyi backtest edilenden farklı hale
+        #               getirir; kapatma varyantı ayrıca ölçülüyor.
+        if pos["status"] in LIVE_STATES and not pos.get("uyarildi"):
             try:
                 d1 = fetch_klines(symbol, "1d", D1_LIMIT)
                 w1 = fetch_klines(symbol, "1w", W1_LIMIT)
                 gecerli, sebep = setup_still_valid(pos, h4, d1, w1)
                 if not gecerli:
-                    pos["status"] = "invalidated"
                     pos["sebep"] = sebep
-                    olaylar.append(("invalidated", h4[-1]))
+                    if pos["status"] == "pending":
+                        pos["status"] = "invalidated"
+                        olaylar.append(("invalidated", h4[-1]))
+                    else:
+                        pos["uyarildi"] = True    # her saat tekrarlamasın
+                        olaylar.append(("yapi_uyari", h4[-1]))
             except Exception as e:
                 print(f"  [{symbol}] geçerlilik kontrolü yapılamadı: {e}")
 
