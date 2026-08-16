@@ -62,11 +62,10 @@ HOLD_TIMEOUT_BARS = 60      # 10 gün sonra pozisyon kapatılır
 # spread/kayma backtest'in komisyon modelinden yüksek olabilir.
 UNIVERSE_SIZE = int(os.environ.get("SMC_UNIVERSE") or "0")
 WORKERS = int(os.environ.get("SMC_WORKERS") or "12")
-# Aynı anda izlenecek azami pozisyon. Otomatik işlem kapalı olduğu için bu
-# artık bir risk sınırı değil, sinyal susturucu: sınıra gelince kalan
-# kurulumlar hiç gönderilmiyor (ölçüldü: 9 kurulumun 4'ü bastırılıyordu).
-# 10, portföy simülasyonunda da test edilmiş bir slot sayısı.
-MAX_OPEN = int(os.environ.get("SMC_MAX_OPEN") or "10")
+# Aynı anda izlenecek azami pozisyon; 0 = sınırsız. Otomatik işlem kapalı
+# olduğu için bu bir risk sınırı değil, yalnızca sinyal susturucu: sınıra
+# gelince kalan kurulumlar hiç gönderilmiyordu (ölçüldü: 9 kurulumun 4'ü).
+MAX_OPEN = int(os.environ.get("SMC_MAX_OPEN") or "30")
 RISK_PCT_OF_BALANCE = float(os.environ.get("SMC_RISK_PCT") or "2.0")
 LEVERAGE = 10
 
@@ -78,7 +77,13 @@ BAR_MS = 4 * 3600 * 1000
 STALE_MS = 3 * BAR_MS       # son 4H mum bundan eskiyse sembol atlanır
 
 LIVE_STATES = ("pending", "open")
-CLOSED_STATES = ("stopped", "trail_stop", "expired", "timeout")
+CLOSED_STATES = ("stopped", "trail_stop", "expired", "timeout", "invalidated")
+
+# Kâğıt üzerinde takip: her işlem 10 USDT marj, 10x kaldıraç -> 100 USDT nominal
+PAPER_MARGIN = 10.0
+PAPER_LEVERAGE = 10
+PAPER_NOTIONAL = PAPER_MARGIN * PAPER_LEVERAGE
+FEE_PCT = 0.07              # gidiş-dönüş: maker %0.02 giriş + taker %0.05 çıkış
 
 
 # ---------------- Evren ----------------
@@ -233,20 +238,75 @@ def monitor(pos, h4):
     return olaylar
 
 
+def setup_still_valid(pos, h4, d1, w1):
+    """Bekleyen kurulumun dayandığı yapı hâlâ ayakta mı? (gerekçe, geçerli mi)
+
+    Stop ihlali ölçüt olarak KULLANILAMAZ: giriş order block'un ortasında,
+    stop ise altında/üstünde: fiyat stopa ulaşmak için önce girişten geçmek
+    zorunda, yani emir zaten dolardı. Kurulumu bozan şey fiyat değil YAPI —
+    üst zaman dilimi yönünün dönmesi ya da 4H'de ters kırılım."""
+    yon = smc.BULLISH if pos["dir"] == "long" else smc.BEARISH
+    w = smc.bias_of(w1, 10)
+    d = smc.bias_of(d1, 20)
+    if not w or not d or w != d:
+        return False, "haftalık ve günlük yön artık uyuşmuyor"
+    if w != yon:
+        return False, "üst zaman dilimi yönü döndü"
+    olaylar, _ = smc.structure(h4, smc.INTERNAL_LEN)
+    for i, y, *_ in olaylar:
+        if i < len(h4) and h4[i]["close_time"] > pos["signal_time"] and y != yon:
+            return False, "4H'de ters yönde yapı kırılımı oluştu"
+    return True, ""
+
+
+def pnl_usd(move_pct, kapandi=True):
+    """Kâğıt üzerinde sonuç: her işlem 10 USDT marj, 10x → 100 USDT nominal.
+
+    Kapanan işlemlerde gidiş-dönüş komisyonu düşülür (maker giriş %0.02 +
+    taker çıkış %0.05 = nominalin %0.07'si)."""
+    kar = PAPER_NOTIONAL * move_pct / 100
+    return kar - (PAPER_NOTIONAL * FEE_PCT / 100 if kapandi else 0.0)
+
+
 def pnl_pct(pos, price):
     e = pos["entry"]
     return (price - e) / e * 100 if pos["dir"] == "long" else (e - price) / e * 100
 
 
 # ---------------- Mesajlar ----------------
-def summary_message(taranan, degerlendirilen, kurulum, positions, fiyatlar):
-    """Her taramada gönderilen özet: ne tarandı, ne açık."""
+def summary_message(taranan, degerlendirilen, kurulum, positions, fiyatlar, gecmis):
+    """Her taramada gönderilen özet: ne tarandı, ne açık, toplam kâr/zarar."""
     canli = [(s, p) for s, p in positions.items() if p["status"] in LIVE_STATES]
+
+    kapanan = pnl_usd_toplam = 0.0
+    kazanan = 0
+    for g in gecmis:
+        kapanan += 1
+        pnl_usd_toplam += g["pnl"]
+        if g["pnl"] > 0:
+            kazanan += 1
+
+    # Açık pozisyonların anlık (gerçekleşmemiş) sonucu — komisyon düşülmez,
+    # işlem henüz kapanmadı.
+    acik_pnl = sum(pnl_usd(pnl_pct(p, fiyatlar[s]), kapandi=False)
+                   for s, p in canli
+                   if p["status"] == "open" and s in fiyatlar)
+
+    sinir = MAX_OPEN or "∞"
     satir = [f"📊 <b>Tarama özeti</b>",
              f"Taranan: <b>{taranan}</b> sembol "
              f"(değerlendirilen {degerlendirilen})",
              f"Bulunan kurulum: <b>{kurulum}</b>",
-             f"Açık/bekleyen: <b>{len(canli)}</b>/{MAX_OPEN}"]
+             f"Açık/bekleyen: <b>{len(canli)}</b>/{sinir}",
+             "",
+             f"💰 <b>Kâğıt üzerinde sonuç</b> "
+             f"(işlem başına {PAPER_MARGIN:.0f}$ marj, {PAPER_LEVERAGE}x)",
+             f"Kapanan {int(kapanan)} işlem"
+             + (f", isabet %{100 * kazanan / kapanan:.0f}" if kapanan else "")
+             + f" → <b>{pnl_usd_toplam:+.2f}$</b>"]
+    if acik_pnl:
+        satir.append(f"Açık pozisyonlar: <b>{acik_pnl:+.2f}$</b>")
+        satir.append(f"Toplam: <b>{pnl_usd_toplam + acik_pnl:+.2f}$</b>")
 
     if canli:
         satir.append("")
@@ -316,6 +376,10 @@ def event_message(symbol, pos, event, candle):
                 f"Sonuç: <b>{r:+.2f}%</b>")
     if event == "expired":
         return f"⚪️ <b>{symbol}</b> emir {FILL_TIMEOUT_BARS // 6} günde dolmadı, iptal."
+    if event == "invalidated":
+        return (f"❌ <b>{symbol}</b> {pos['dir'].upper()} kurulumu GEÇERSİZ — "
+                f"{pos.get('sebep', 'yapı bozuldu')}.\nBekleyen emir listeden çıkarıldı; "
+                f"bu emri verdiysen iptal et.")
     return f"{symbol}: {event}"
 
 
@@ -345,6 +409,7 @@ def _init_trading():
 def main():
     state = load_state()
     positions = state.setdefault("positions", {})
+    gecmis = state.setdefault("gecmis", [])   # kapanan işlemler (kâğıt üzerinde)
     bt, api, bal = _init_trading()
     if not bal:
         bal = 100.0
@@ -356,13 +421,30 @@ def main():
         if pos["status"] not in LIVE_STATES:
             continue
         try:
-            h4 = fetch_klines(symbol, "4h", 200)
+            h4 = fetch_klines(symbol, "4h", H4_LIMIT)
         except Exception as e:
             print(f"[{symbol}] veri alınamadı: {e}")
             continue
         if h4:
             fiyatlar[symbol] = h4[-1]["close"]
-        for event, candle in monitor(pos, h4):
+
+        olaylar = monitor(pos, h4)
+
+        # Bekleyen emrin dayandığı YAPI hâlâ ayakta mı? Bozulduysa emri
+        # beklemeye devam etmenin anlamı yok.
+        if pos["status"] == "pending":
+            try:
+                d1 = fetch_klines(symbol, "1d", D1_LIMIT)
+                w1 = fetch_klines(symbol, "1w", W1_LIMIT)
+                gecerli, sebep = setup_still_valid(pos, h4, d1, w1)
+                if not gecerli:
+                    pos["status"] = "invalidated"
+                    pos["sebep"] = sebep
+                    olaylar.append(("invalidated", h4[-1]))
+            except Exception as e:
+                print(f"  [{symbol}] geçerlilik kontrolü yapılamadı: {e}")
+
+        for event, candle in olaylar:
             print(f"  [{symbol}] {event}")
             send_telegram(event_message(symbol, pos, event, candle))
 
@@ -380,6 +462,14 @@ def main():
                     bt.update_stop(api, symbol, pos["dir"], pos["stop"])
             except Exception as e:
                 print(f"  [{symbol}] koruma/stop mutabakatı başarısız: {e}")
+
+        if pos["status"] in CLOSED_STATES and not pos.get("kaydedildi"):
+            pos["kaydedildi"] = True
+            if pos["status"] in ("stopped", "trail_stop", "timeout"):
+                hareket = pnl_pct(pos, pos.get("exit", pos["entry"]))
+                gecmis.append({"sym": symbol, "dir": pos["dir"],
+                               "durum": pos["status"], "move_pct": hareket,
+                               "pnl": pnl_usd(hareket), "t": pos["last_bar"]})
 
         if api and pos["status"] in CLOSED_STATES:
             try:
@@ -442,13 +532,14 @@ def main():
 
     bulunan.sort()
     if bulunan:
-        print(f"{len(bulunan)} kurulum bulundu, {min(len(bulunan), MAX_OPEN - acik)} "
+        alinacak = len(bulunan) if not MAX_OPEN else min(len(bulunan), MAX_OPEN - acik)
+        print(f"{len(bulunan)} kurulum bulundu, {alinacak} "
               f"tanesi alınacak (hacim sırasına göre):")
         for _, s, g, _t, _f in bulunan:
             print(f"    {s:14s} {g['tip']:5s} R:R={g['rr']:.2f} risk=%{g['risk_pct']:.2f}")
 
     for _, symbol, sig, bar_time, son_fiyat in bulunan:
-        if acik >= MAX_OPEN:
+        if MAX_OPEN and acik >= MAX_OPEN:
             print("Eşzamanlı pozisyon sınırı dolu, kalan kurulumlar alınmadı.")
             break
 
@@ -476,7 +567,7 @@ def main():
 
     save_state(state)
     send_telegram(summary_message(len(symbols), say["degerlendirilen"],
-                                  len(bulunan), positions, fiyatlar))
+                                  len(bulunan), positions, fiyatlar, gecmis))
     print("Tarama bitti.")
 
 
