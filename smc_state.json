@@ -33,15 +33,15 @@
   ],
   "kosu": {
     "ilk": 1786897777,
-    "sayi": 15,
-    "son": 1786951058
+    "sayi": 16,
+    "son": 1786953809
   },
   "positions": {
     "AGLDUSDT": {
-      "bars": 4,
+      "bars": 5,
       "dir": "short",
       "entry": 0.16075,
-      "last_bar": 1786939199999,
+      "last_bar": 1786953599999,
       "risk_pct": 0.8786936236391981,
       "rr": 2.867256637168118,
       "signal_time": 1786881599999,
@@ -52,19 +52,19 @@
       "trailed": false
     },
     "ATOMUSDT": {
-      "bars": 4,
+      "bars": 5,
       "dir": "short",
       "entry": 1.5045000000000002,
       "fill_time": 1786881599999,
-      "last_bar": 1786939199999,
+      "last_bar": 1786953599999,
       "risk_pct": 1.1240089256041284,
       "rr": 1.9218585005280144,
       "signal_time": 1786852799999,
       "sl": 1.5214107142857143,
       "status": "open",
-      "stop": 1.5214107142857143,
+      "stop": 1.505,
       "tip": "BOS",
-      "trailed": false
+      "trailed": true
     },
     "BANKUSDT": {
       "bars": 9,
@@ -83,11 +83,11 @@
       "trailed": true
     },
     "BELUSDT": {
-      "bars": 1,
+      "bars": 2,
       "dir": "long",
       "entry": 0.1057,
       "hacim_sirasi": 33,
-      "last_bar": 1786939199999,
+      "last_bar": 1786953599999,
       "risk_pct": 2.4986484660089148,
       "rr": 1.628127112914134,
       "signal_time": 1786924799999,
@@ -114,11 +114,11 @@
       "trailed": false
     },
     "BNBUSDT": {
-      "bars": 11,
+      "bars": 12,
       "dir": "short",
       "entry": 611.41,
       "fill_time": 1786780799999,
-      "last_bar": 1786939199999,
+      "last_bar": 1786953599999,
       "risk_pct": 0.4242243339166844,
       "rr": 1.630843373493983,
       "signal_time": 1786723199999,
@@ -161,11 +161,11 @@
       "trailed": true
     },
     "EPICUSDT": {
-      "bars": 9,
+      "bars": 10,
       "dir": "long",
       "entry": 0.34455,
       "fill_time": 1786809599999,
-      "last_bar": 1786939199999,
+      "last_bar": 1786953599999,
       "risk_pct": 6.67485540145532,
       "rr": 1.5414240236043153,
       "signal_time": 1786766399999,
@@ -176,10 +176,10 @@
       "trailed": true
     },
     "FLOWUSDT": {
-      "bars": 15,
+      "bars": 16,
       "dir": "short",
       "entry": 0.031810000000000005,
-      "last_bar": 1786939199999,
+      "last_bar": 1786953599999,
       "risk_pct": 1.6302151165401564,
       "rr": 1.5619834710744045,
       "signal_time": 1786723199999,
@@ -190,11 +190,11 @@
       "trailed": false
     },
     "LQTYUSDT": {
-      "bars": 0,
+      "bars": 1,
       "dir": "short",
       "entry": 0.19705,
       "hacim_sirasi": 311,
-      "last_bar": 1786939199999,
+      "last_bar": 1786953599999,
       "risk_pct": 1.334867872548664,
       "rr": 1.5397148676171073,
       "signal_time": 1786939199999,
@@ -205,11 +205,11 @@
       "trailed": false
     },
     "MUBARAKUSDT": {
-      "bars": 0,
+      "bars": 1,
       "dir": "long",
       "entry": 0.01541,
       "hacim_sirasi": 72,
-      "last_bar": 1786939199999,
+      "last_bar": 1786953599999,
       "risk_pct": 2.868035598405484,
       "rr": 1.6743434343434391,
       "signal_time": 1786939199999,
@@ -237,10 +237,10 @@
       "trailed": true
     },
     "SENTUSDT": {
-      "bars": 15,
+      "bars": 16,
       "dir": "short",
       "entry": 0.013415,
-      "last_bar": 1786939199999,
+      "last_bar": 1786953599999,
       "risk_pct": 2.648953729833346,
       "rr": 1.5899497487437149,
       "signal_time": 1786723199999,
@@ -267,10 +267,10 @@
       "trailed": false
     },
     "TAOUSDT": {
-      "bars": 14,
+      "bars": 15,
       "dir": "short",
       "entry": 203.45,
-      "last_bar": 1786939199999,
+      "last_bar": 1786953599999,
       "risk_pct": 1.344661728048328,
       "rr": 2.10182767624018,
       "signal_time": 1786737599999,
@@ -281,34 +281,35 @@
       "trailed": false
     },
     "THETAUSDT": {
-      "bars": 1,
+      "bars": 0,
       "dir": "short",
       "entry": 0.139,
+      "fill_time": 1786953599999,
       "hacim_sirasi": 241,
-      "last_bar": 1786939199999,
+      "last_bar": 1786953599999,
       "risk_pct": 0.8774409044193162,
       "rr": 1.8857979502196507,
       "signal_time": 1786924799999,
       "sl": 0.14021964285714286,
-      "status": "pending",
+      "status": "open",
       "stop": 0.14021964285714286,
       "tip": "CHoCH",
       "trailed": false
     },
     "TWTUSDT": {
-      "bars": 3,
+      "bars": 4,
       "dir": "short",
       "entry": 0.40485000000000004,
       "fill_time": 1786895999999,
-      "last_bar": 1786939199999,
+      "last_bar": 1786953599999,
       "risk_pct": 1.549515693643141,
       "rr": 1.5701679476231254,
       "signal_time": 1786852799999,
       "sl": 0.4111232142857143,
       "status": "open",
-      "stop": 0.4111232142857143,
+      "stop": 0.401,
       "tip": "CHoCH",
-      "trailed": false
+      "trailed": true
     }
   }
 }
