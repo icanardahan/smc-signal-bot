@@ -4,7 +4,7 @@
 
 | Dosya | İş |
 |---|---|
-| `com.icanardahan.smcbot.plist` | Her saatin 20. dakikasında `run_local.sh` çalıştırır |
+| `com.icanardahan.smcbot.plist` | Sürekli döngü: tarama biter, `SMC_SLEEP` (varsayılan 300s) beklenir, tekrar başlar |
 | `com.icanardahan.smcbot.awake.plist` | `caffeinate -s -i` ile boşta uykuyu engeller |
 
 ## Kurulum / yeniden kurulum
@@ -26,7 +26,16 @@ for f in ~/Library/LaunchAgents/com.icanardahan.smcbot*.plist; do launchctl unlo
 Bu yalnızca taramayı durdurur. Binance'teki açık pozisyonlar ve stop
 emirleri yerinde kalır; onları borsadan kapatmak gerekir.
 
-## Neden StartCalendarInterval
+## Neden sürekli döngü
+
+"Tarama bittikten 5 dk sonra tekrar başlasın" ancak sürecin kendisi beklerse
+garanti edilir. Takvim/aralık tetiklemesi tarama uzadığında koşuları üst üste
+bindirir; kilit bunu yakalar ama o tetikleme boşa gider. Döngüde bekleme
+bitişten sonra başlar. `KeepAlive` süreç ölürse yeniden başlatır.
+
+Süreyi değiştirmek için `.env` içine `SMC_SLEEP=600` gibi bir satır ekle.
+
+### Önceki yaklaşım (StartCalendarInterval)
 
 `StartInterval` (her N saniyede bir) yerine takvim tabanlı tetikleme
 kullanılıyor. Sebep: kullanıcının kidshorts projesindeki ajanlar da

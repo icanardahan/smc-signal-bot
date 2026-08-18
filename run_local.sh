@@ -13,21 +13,29 @@
 set -uo pipefail
 cd "$(dirname "$0")"
 
+# --- döngü modu ---
+# "--loop" ile çalışırsa: tara, SMC_SLEEP saniye bekle, tekrar tara.
+# Bekleme tarama BİTTİKTEN sonra başlar, yani koşular üst üste binmez.
+SLEEP_SN="${SMC_SLEEP:-300}"
+
 # TEK KOŞU KİLİDİ. Zamanlayıcı ile elle başlatılan koşu çakışabiliyor
 # (ölçüldü: aynı 5 kurulum iki kez işlendi). Gerçek parada bu, her sinyal
 # için iki emir demek. mkdir POSIX'te atomik olduğu için kilit olarak
 # kullanılıyor; sahibi ölmüşse kilit devralınır.
 KILIT="$PWD/.run.lock"
-if ! mkdir "$KILIT" 2>/dev/null; then
-  ESKI=$(cat "$KILIT/pid" 2>/dev/null || echo "")
-  if [ -n "$ESKI" ] && kill -0 "$ESKI" 2>/dev/null; then
-    echo "$(date '+%H:%M:%S') başka bir tarama sürüyor (pid $ESKI), bu koşu atlandı." \
-      >> "logs/$(date +%Y-%m-%d).log" 2>/dev/null || true
-    exit 0
+kilit_al() {
+  if ! mkdir "$KILIT" 2>/dev/null; then
+    ESKI=$(cat "$KILIT/pid" 2>/dev/null || echo "")
+    if [ -n "$ESKI" ] && kill -0 "$ESKI" 2>/dev/null; then
+      echo "$(date '+%H:%M:%S') başka bir tarama sürüyor (pid $ESKI), atlandı." \
+        >> "logs/$(date +%Y-%m-%d).log" 2>/dev/null || true
+      return 1
+    fi
+    rm -rf "$KILIT"; mkdir "$KILIT" 2>/dev/null || return 1
   fi
-  rm -rf "$KILIT"; mkdir "$KILIT" 2>/dev/null || exit 0
-fi
-echo $$ > "$KILIT/pid"
+  echo $$ > "$KILIT/pid"
+  return 0
+}
 trap 'rm -rf "$KILIT"' EXIT INT TERM
 
 hata_bildir() {
@@ -47,6 +55,24 @@ if t and c:
 PY
 }
 
+tarama_yap() {
+  kilit_al || return 0
+  mkdir -p logs
+  local LOG="logs/$(date +%Y-%m-%d).log"
+  {
+    echo "===== $(date '+%Y-%m-%d %H:%M:%S') ====="
+    "$PY" -u smc_scanner.py
+  } >> "$LOG" 2>&1
+  local KOD=$?
+  rm -rf "$KILIT"
+  if [ $KOD -ne 0 ]; then
+    echo "tarama hata verdi (çıkış kodu $KOD), son satırlar:" >&2
+    tail -20 "$LOG" >&2
+    hata_bildir "Log: $(pwd)/$LOG (çıkış kodu $KOD)"
+  fi
+  return $KOD
+}
+
 if [ ! -f .env ]; then
   echo "HATA: .env yok. '.env.example' dosyasını .env olarak kopyalayıp doldur." >&2
   exit 1
@@ -59,17 +85,14 @@ if [ -z "${BINANCE_API_KEY:-}" ] || [[ "${BINANCE_API_KEY}" == buraya_* ]]; then
 fi
 
 PY="${SMC_PYTHON:-python3}"
-mkdir -p logs
-LOG="logs/$(date +%Y-%m-%d).log"
-{
-  echo "===== $(date '+%Y-%m-%d %H:%M:%S') ====="
-  "$PY" -u smc_scanner.py
-} >> "$LOG" 2>&1
-KOD=$?
 
-if [ $KOD -ne 0 ]; then
-  echo "tarama hata verdi (çıkış kodu $KOD), son satırlar:" >&2
-  tail -20 "$LOG" >&2
-  hata_bildir "Log: $(pwd)/$LOG (çıkış kodu $KOD)"
+if [ "${1:-}" = "--loop" ]; then
+  echo "döngü modu: tarama bitince ${SLEEP_SN}s bekleyip tekrar başlayacak."
+  while true; do
+    tarama_yap || true
+    sleep "$SLEEP_SN"
+  done
 fi
-exit $KOD
+
+tarama_yap
+exit $?

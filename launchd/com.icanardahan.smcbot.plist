@@ -3,19 +3,20 @@
 <plist version="1.0">
 <dict>
   <key>Label</key><string>com.icanardahan.smcbot</string>
+  <!-- Sürekli çalışan döngü: tarama biter, 5 dk beklenir, tekrar başlar.
+       Takvim tetiklemesi yerine bu tercih edildi çünkü "bitişten 5 dk sonra"
+       ancak süreç kendi beklerse garanti edilir; takvim tetiklemesi tarama
+       uzarsa koşuları üst üste bindirirdi. KeepAlive süreç ölürse yeniden
+       başlatır. Mac uyursa sleep uzar, uyanınca kaldığı yerden devam eder. -->
   <key>ProgramArguments</key>
   <array>
     <string>/bin/bash</string>
     <string>/Users/icanardahan/smc-signal-bot/run_local.sh</string>
+    <string>--loop</string>
   </array>
-  <!-- StartCalendarInterval, StartInterval'dan farklı olarak takvim tabanlı
-       çalışır ve kullanıcının kidshorts projesinde gece 01:00/03:00'te
-       güvenilir biçimde tetiklendiği görüldü. Her saatin 20. dakikası. -->
-  <key>StartCalendarInterval</key>
-  <dict>
-    <key>Minute</key><integer>20</integer>
-  </dict>
   <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>60</integer>
   <key>StandardOutPath</key><string>/Users/icanardahan/smc-signal-bot/logs/launchd.out</string>
   <key>StandardErrorPath</key><string>/Users/icanardahan/smc-signal-bot/logs/launchd.err</string>
 </dict>
