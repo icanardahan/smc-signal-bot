@@ -446,8 +446,31 @@ def main():
     kosu.setdefault("ilk", simdi_ts)
     kosu["son"] = simdi_ts
     bt, api, bal = _init_trading()
+    kuru = bool(api and api.dry)
     if not bal:
         bal = 100.0
+
+    # Borsa ile state mutabakatı: bekleyen kaydın borsada karşılığı yoksa
+    # (ne pozisyon ne emir) o kayıt gerçek değildir ve slot işgal eder.
+    if api and not kuru:
+        try:
+            borsa_poz = set(api.positions())
+            borsa_emir = {o["symbol"] for o in api.open_orders()}
+            hayalet = [s for s, p in positions.items()
+                       if p["status"] == "pending"
+                       and s not in borsa_poz and s not in borsa_emir]
+            if hayalet:
+                print(f"UYARI: borsada karşılığı olmayan {len(hayalet)} bekleyen "
+                      f"kayıt düşürüldü: {', '.join(hayalet)}")
+                for s in hayalet:
+                    positions.pop(s, None)
+                send_telegram(
+                    f"🧹 <b>Hayalet kayıt temizlendi</b>\n"
+                    f"{len(hayalet)} bekleyen kaydın Binance'te karşılığı yoktu "
+                    f"(ne pozisyon ne emir): {', '.join(hayalet)}\n"
+                    f"Slotlar boşaltıldı.")
+        except Exception as e:
+            print(f"borsa mutabakatı yapılamadı: {e}")
 
     fiyatlar = {}
     seriler = {}
@@ -599,6 +622,14 @@ def main():
         print(f"[{symbol}] KURULUM {sig['tip']} giriş={sig['entry']:.6g} "
               f"stop={sig['sl']:.6g} R:R={sig['rr']:.2f}")
         send_telegram(signal_message(symbol, sig, bal))
+
+        if kuru:
+            # KURU çalışmada emir GÖNDERİLMİYOR; state'e yazmak kaydı
+            # gerçekmiş gibi gösterir. Bir kez başımıza geldi: prova koşusu
+            # 5 sahte "pending" yazdı, gerçek işlem açılınca bot "sınır dolu"
+            # deyip HİÇ emir açmadı ve bu sessizce oldu.
+            print(f"  [{symbol}] KURU — state'e yazılmadı")
+            continue
 
         positions[symbol] = {
             "status": "pending", "dir": sig["dir"], "entry": sig["entry"],
