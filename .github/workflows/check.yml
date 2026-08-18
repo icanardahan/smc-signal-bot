@@ -18,12 +18,19 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Canlı Binance vadeli ucuna erişim (imzasız)
+      - name: Canlı Binance uçlarına erişim (imzasız)
         run: |
-          echo "--- fapi.binance.com (GERÇEK PARA ucu) ---"
-          curl -s -o /dev/null -w "HTTP %{http_code}\n" https://fapi.binance.com/fapi/v1/time || true
-          echo "--- testnet.binancefuture.com ---"
-          curl -s -o /dev/null -w "HTTP %{http_code}\n" https://testnet.binancefuture.com/fapi/v1/time || true
+          for h in fapi.binance.com fapi1.binance.com fapi2.binance.com \
+                   fapi3.binance.com fapi4.binance.com api.binance.com \
+                   api-gcp.binance.com testnet.binancefuture.com \
+                   data-api.binance.vision; do
+            case "$h" in
+              *binancefuture*|fapi*) yol=/fapi/v1/time ;;
+              *) yol=/api/v3/time ;;
+            esac
+            printf "%-30s " "$h"
+            curl -s -m 12 -o /dev/null -w "HTTP %{http_code}\n" "https://$h$yol" || echo "BAGLANAMADI"
+          done
 
       - name: Bağlantıyı sına
         env:
