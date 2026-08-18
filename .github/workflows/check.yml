@@ -29,7 +29,9 @@ jobs:
               *) yol=/api/v3/time ;;
             esac
             printf "%-30s " "$h"
-            curl -s -m 12 -o /dev/null -w "HTTP %{http_code}\n" "https://$h$yol" || echo "BAGLANAMADI"
+            kod=$(curl -s -m 12 -o /dev/null -w "%{http_code}" "https://$h$yol" || echo "---")
+            son=$(curl -sL -m 15 -o /dev/null -w "%{http_code} -> %{url_effective}" "https://$h$yol" || echo "---")
+            echo "HTTP $kod | yönlendirme sonrası: $son"
           done
 
       - name: Bağlantıyı sına
