@@ -5,8 +5,10 @@
 # Actions sunucularından HTTP 451 (bölge kısıtı) döndürüyor; ölçüldü.
 # Testnet ucu farklı alan adı olduğu için orada sorun çıkmıyordu.
 #
-# launchd bu betiği Desktop'tan çalıştırabilmek için /bin/bash'e
-# "Tam Disk Erişimi" izni ister (macOS Desktop klasörünü korur).
+# Depo bilerek Desktop DIŞINDA (~/smc-signal-bot): macOS Desktop klasörünü
+# koruyor ve launchd oradaki dosyaları okuyamıyor ("Operation not permitted";
+# ölçüldü — launchd ev dizinini okuyabiliyor, Desktop'ı okuyamıyor).
+# Masaüstündeki klasör buraya işaret eden bir kısayol.
 
 set -uo pipefail
 cd "$(dirname "$0")"
