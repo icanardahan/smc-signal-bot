@@ -188,14 +188,14 @@ class BinanceFutures:
         params = {"symbol": symbol} if symbol else {}
         return self._request("GET", "/fapi/v1/openOrders", params, signed=True)
 
-    def setup_symbol(self, symbol):
+    def setup_symbol(self, symbol, leverage=LEVERAGE):
         """Kaldıraç ve izole marjin ayarı. Zaten ayarlıysa borsa hata döner,
         bu normaldir ve yutulur."""
         if self.dry:
             return
         try:
             self._request("POST", "/fapi/v1/leverage",
-                          {"symbol": symbol, "leverage": LEVERAGE}, signed=True)
+                          {"symbol": symbol, "leverage": int(leverage)}, signed=True)
         except RuntimeError as e:
             print(f"  [{symbol}] kaldıraç: {e}")
         try:
@@ -399,6 +399,22 @@ def cancel_everything(api, symbol):
         print(f"  [{symbol}] algo emirleri iptal edilemedi: {e}")
 
 
+def safe_leverage(risk_frac, azami=LEVERAGE, guvenlik=2.0, bakim=0.005):
+    """Stopun likidasyondan ÖNCE tetiklenmesini garantileyen kaldıraç.
+
+    İzole marjinde likidasyon, yaklaşık (1/kaldıraç - bakım marjı) kadarlık
+    ters harekette gerçekleşir. 10x'te bu ~%9.5; stop mesafesi bunun üstündeyse
+    stop hiç çalışmaz, pozisyon likide olur ve çıkış backtest'te modellenen
+    şey olmaz (ölçüldü: TUTUSDT kurulumunda stop %17.13 idi).
+
+    Risk-bazlı sizing'de nominal zaten risk bütçesinden geliyor; kaldıraç
+    yalnızca marjı belirler. Bu yüzden kaldıracı düşürmek riski ARTIRMAZ,
+    sadece stopu işlevsel kılar."""
+    if risk_frac <= 0:
+        return azami
+    return max(1, min(azami, int(1.0 / (guvenlik * risk_frac + bakim))))
+
+
 def risk_based_notional(api, symbol, entry, sl, balance,
                         risk_pct_of_balance=2.0, max_open=5, leverage=LEVERAGE):
     """Nominal büyüklük, stop mesafesine göre: her işlemde AYNI dolar riski.
@@ -418,8 +434,10 @@ def open_trade_trailing(api, symbol, direction, entry, sl, balance,
                         risk_pct_of_balance=2.0, max_open=5):
     """Sürüklenen stop modeli: sabit TP yok, yalnızca giriş + koruyucu stop."""
     entry = api.round_price(symbol, entry)
+    risk_frac = abs(entry - sl) / entry if entry else 0
+    kald = safe_leverage(risk_frac)
     notional = risk_based_notional(api, symbol, entry, sl, balance,
-                                   risk_pct_of_balance, max_open)
+                                   risk_pct_of_balance, max_open, leverage=kald)
     if notional < api.min_notional(symbol):
         print(f"  [{symbol}] nominal {notional:.1f} < min {api.min_notional(symbol)}, atlandı")
         return None
@@ -427,9 +445,11 @@ def open_trade_trailing(api, symbol, direction, entry, sl, balance,
     if qty <= 0:
         return None
 
-    api.setup_symbol(symbol)
+    api.setup_symbol(symbol, kald)
     print(f"  [{symbol}] {direction.upper()} giriş={entry} miktar={qty} "
-          f"nominal≈{notional:.1f} USDT (risk≈{balance * risk_pct_of_balance / 100:.2f} USDT)")
+          f"nominal≈{notional:.1f} USDT marj≈{notional / kald:.2f} "
+          f"kaldıraç={kald}x (stop %{100 * risk_frac:.2f}, "
+          f"risk≈{balance * risk_pct_of_balance / 100:.2f} USDT)")
     api.place_entry(symbol, direction, qty, entry)
 
     # Limit emir anında dolarsa pozisyon stopsuz kalmasın
