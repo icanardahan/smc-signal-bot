@@ -69,7 +69,7 @@ WORKERS = int(os.environ.get("SMC_WORKERS") or "12")
 # Portföy simülasyonunda ölçülenler: 3 slot 499$/%25 düşüş, 5 slot 433$/%30,
 # 10 slot 358$/%31. Kripto korelasyonu +0.25 olduğu için bu pozisyonlar
 # birbirini dengelemiyor (etkin bağımsız işlem ~3.4).
-MAX_OPEN = int(os.environ.get("SMC_MAX_OPEN") or "5")
+MAX_OPEN = int(os.environ.get("SMC_MAX_OPEN") or "0")   # 0 = SINIRSIZ
 RISK_PCT_OF_BALANCE = float(os.environ.get("SMC_RISK_PCT") or "2.0")
 LEVERAGE = 10
 
@@ -649,6 +649,24 @@ def main():
             print(f"  [{symbol}] KURU — state'e yazılmadı")
             continue
 
+        # ÖNCE emri aç, SONRA kaydet. Ters sırada yapılıyordu ve emir
+        # reddedilince (izin hatası, yetersiz marj, filtre) kayıt state'te
+        # kalıp slotu kilitliyordu; sonraki koşular "sınır dolu" deyip hiç
+        # işlem açmıyordu. Bir kez tam olarak bu yaşandı: 5 emir -2015 aldı,
+        # 5 hayalet kayıt kaldı.
+        if api:
+            try:
+                sonuc = bt.open_trade_trailing(api, symbol, sig["dir"], sig["entry"],
+                                               sig["sl"], bal,
+                                               risk_pct_of_balance=RISK_PCT_OF_BALANCE,
+                                               max_open=MAX_OPEN)
+            except Exception as e:
+                print(f"  [{symbol}] emir açılamadı: {e}")
+                continue
+            if not sonuc:
+                print(f"  [{symbol}] emir yerleştirilemedi, kaydedilmedi")
+                continue
+
         positions[symbol] = {
             "status": "pending", "dir": sig["dir"], "entry": sig["entry"],
             "sl": sig["sl"], "stop": sig["sl"], "trailed": False, "bars": 0,
@@ -659,15 +677,6 @@ def main():
         fiyatlar[symbol] = son_fiyat
         seriler[symbol] = seri
         acik += 1
-
-        if api:
-            try:
-                bt.open_trade_trailing(api, symbol, sig["dir"], sig["entry"],
-                                       sig["sl"], bal,
-                                       risk_pct_of_balance=RISK_PCT_OF_BALANCE,
-                                       max_open=MAX_OPEN)
-            except Exception as e:
-                print(f"  [{symbol}] emir açılamadı: {e}")
 
     save_state(state)
     send_telegram(summary_message(len(symbols), say["degerlendirilen"],

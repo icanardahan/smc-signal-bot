@@ -463,7 +463,12 @@ def risk_based_notional(api, symbol, entry, sl, balance,
     if risk_frac <= 0:
         return 0.0
     notional = (balance * risk_pct_of_balance / 100) / risk_frac
-    return min(notional, balance / max_open * leverage)
+    # Tek işlemin marjı bakiyenin belli bir oranını aşmasın. max_open=0
+    # (sınırsız) durumunda bölme yapılamayacağı için %10 tavanı kullanılır —
+    # 10 slotluk ayarın karşılığı. Sınırsız modda işlem SAYISINI sınırlayan
+    # şey borsadaki kullanılabilir marj olur.
+    pay = (1.0 / max_open) if max_open else 0.10
+    return min(notional, balance * pay * leverage)
 
 
 def open_trade_trailing(api, symbol, direction, entry, sl, balance,
