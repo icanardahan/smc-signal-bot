@@ -13,6 +13,23 @@
 set -uo pipefail
 cd "$(dirname "$0")"
 
+# TEK KOŞU KİLİDİ. Zamanlayıcı ile elle başlatılan koşu çakışabiliyor
+# (ölçüldü: aynı 5 kurulum iki kez işlendi). Gerçek parada bu, her sinyal
+# için iki emir demek. mkdir POSIX'te atomik olduğu için kilit olarak
+# kullanılıyor; sahibi ölmüşse kilit devralınır.
+KILIT="$PWD/.run.lock"
+if ! mkdir "$KILIT" 2>/dev/null; then
+  ESKI=$(cat "$KILIT/pid" 2>/dev/null || echo "")
+  if [ -n "$ESKI" ] && kill -0 "$ESKI" 2>/dev/null; then
+    echo "$(date '+%H:%M:%S') başka bir tarama sürüyor (pid $ESKI), bu koşu atlandı." \
+      >> "logs/$(date +%Y-%m-%d).log" 2>/dev/null || true
+    exit 0
+  fi
+  rm -rf "$KILIT"; mkdir "$KILIT" 2>/dev/null || exit 0
+fi
+echo $$ > "$KILIT/pid"
+trap 'rm -rf "$KILIT"' EXIT INT TERM
+
 hata_bildir() {
   # Tarama çökerse sessiz kalmasın. GitHub Actions'taki failure() adımının
   # yerel karşılığı; yereldeki tek uyarı kanalı bu.
