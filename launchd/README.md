@@ -4,7 +4,7 @@
 
 | Dosya | İş |
 |---|---|
-| `com.icanardahan.smcbot.plist` | Saatte bir `run_local.sh` çalıştırır |
+| `com.icanardahan.smcbot.plist` | Her saatin 20. dakikasında `run_local.sh` çalıştırır |
 | `com.icanardahan.smcbot.awake.plist` | `caffeinate -s -i` ile boşta uykuyu engeller |
 
 ## Kurulum / yeniden kurulum
@@ -25,6 +25,18 @@ for f in ~/Library/LaunchAgents/com.icanardahan.smcbot*.plist; do launchctl unlo
 
 Bu yalnızca taramayı durdurur. Binance'teki açık pozisyonlar ve stop
 emirleri yerinde kalır; onları borsadan kapatmak gerekir.
+
+## Neden StartCalendarInterval
+
+`StartInterval` (her N saniyede bir) yerine takvim tabanlı tetikleme
+kullanılıyor. Sebep: kullanıcının kidshorts projesindeki ajanlar da
+`StartCalendarInterval` ile kurulu ve gece 01:00 / 03:00'teki koşuları
+log damgalarına göre zamanında çalışmış.
+
+Uyarı — bu tam bir kanıt değil: o sırada Claude uygulaması 12 saatten uzun
+süredir `NoIdleSleepAssertion` tutuyordu, yani Mac muhtemelen zaten
+uyanıktı. `pmset -g sched` çıktısında kidshorts'a ait bir uyandırma olayı
+YOK. Yine de takvim tetiklemesi bir kayıp getirmiyor, o yüzden alındı.
 
 ## Uyku hakkında bilinmesi gerekenler
 

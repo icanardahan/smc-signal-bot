@@ -8,7 +8,13 @@
     <string>/bin/bash</string>
     <string>/Users/icanardahan/smc-signal-bot/run_local.sh</string>
   </array>
-  <key>StartInterval</key><integer>3600</integer>
+  <!-- StartCalendarInterval, StartInterval'dan farklı olarak takvim tabanlı
+       çalışır ve kullanıcının kidshorts projesinde gece 01:00/03:00'te
+       güvenilir biçimde tetiklendiği görüldü. Her saatin 20. dakikası. -->
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Minute</key><integer>20</integer>
+  </dict>
   <key>RunAtLoad</key><true/>
   <key>StandardOutPath</key><string>/Users/icanardahan/smc-signal-bot/logs/launchd.out</string>
   <key>StandardErrorPath</key><string>/Users/icanardahan/smc-signal-bot/logs/launchd.err</string>
