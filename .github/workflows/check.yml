@@ -32,6 +32,9 @@ jobs:
             kod=$(curl -s -m 12 -o /dev/null -w "%{http_code}" "https://$h$yol" || echo "---")
             son=$(curl -sL -m 15 -o /dev/null -w "%{http_code} -> %{url_effective}" "https://$h$yol" || echo "---")
             echo "HTTP $kod | yönlendirme sonrası: $son"
+            if [ "$kod" = "451" ]; then
+              echo "      GOVDE: $(curl -s -m 12 "https://$h$yol" | head -c 300)"
+            fi
           done
 
       - name: Bağlantıyı sına
