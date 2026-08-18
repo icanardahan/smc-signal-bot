@@ -18,6 +18,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Canlı Binance vadeli ucuna erişim (imzasız)
+        run: |
+          echo "--- fapi.binance.com (GERÇEK PARA ucu) ---"
+          curl -s -o /dev/null -w "HTTP %{http_code}\n" https://fapi.binance.com/fapi/v1/time || true
+          echo "--- testnet.binancefuture.com ---"
+          curl -s -o /dev/null -w "HTTP %{http_code}\n" https://testnet.binancefuture.com/fapi/v1/time || true
+
       - name: Bağlantıyı sına
         env:
           BINANCE_API_KEY: ${{ secrets.BINANCE_API_KEY }}
