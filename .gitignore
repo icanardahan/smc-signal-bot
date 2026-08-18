@@ -2,3 +2,6 @@ __pycache__/
 *.pyc
 .venv/
 .backtest_cache/
+.env
+logs/
+smc_state.json

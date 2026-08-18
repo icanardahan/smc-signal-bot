@@ -6,11 +6,11 @@ name: SMC H/G/4S Taraması (ileri test)
 # başına kanıt sayılmaz ve 2026 dilimi eksidir. Bu yüzden görülmemiş veriyle
 # ileri test ediliyor.
 
+# ZAMANLAMA KAPALI. Bot artık kullanıcının Mac'inde çalışıyor (run_local.sh +
+# launchd), çünkü Binance'in GERÇEK vadeli ucu Actions'tan HTTP 451 veriyor.
+# Buradan da çalışsaydı iki ayrı yazıcı olurdu: state çakışır, Telegram'a
+# çift mesaj giderdi. Elle çalıştırma yalnızca testnet tanılaması için durur.
 on:
-  schedule:
-    # Saatlik. Kurulumlar 4 saatlik barlarda oluşuyor ama bekleyen emrin
-    # dolumunu ve stop sürüklemesini erken bildirmek için saatlik taranıyor.
-    - cron: "20 * * * *"
   workflow_dispatch: {}
 
 permissions:
