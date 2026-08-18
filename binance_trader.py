@@ -172,6 +172,28 @@ class BinanceFutures:
         bal = self.balance_usdt()
         return min(bal, getattr(self, "available_usdt", bal) or bal)
 
+    def api_izinleri(self):
+        """Anahtarın izinleri (spot ucundan, salt okunur). Okunamazsa None.
+
+        Binance, Futures iznini ancak IP kısıtlaması uygulanmış anahtarlarda
+        veriyor. Ev IP'si değişirse izin bozulmaz ama istekler -2015 alır;
+        ikisini ayırt edebilmek için izin durumunu ayrıca okuyoruz."""
+        eski = self.base
+        try:
+            self.base = "https://api.binance.com"
+            return self._request("GET", "/sapi/v1/account/apiRestrictions", signed=True)
+        except Exception:
+            return None
+        finally:
+            self.base = eski
+
+    def dis_ip(self):
+        try:
+            with urllib.request.urlopen("https://api.ipify.org", timeout=8) as r:
+                return r.read().decode().strip()
+        except Exception:
+            return "?"
+
     def positions(self):
         """Borsadaki GERÇEK açık pozisyonlar (yerel state'e güvenilmez)."""
         out = {}

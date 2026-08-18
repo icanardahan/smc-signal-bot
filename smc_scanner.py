@@ -433,6 +433,24 @@ def _init_trading():
     if bt._dry_run():
         mod += " / KURU ÇALIŞMA"
     print(f"Otomatik işlem AÇIK — {mod} | bakiye {bal:.2f} USDT")
+
+    # Vadeli YAZMA izni var mı? Okuma çalışsa bile emir açılamayabilir
+    # (ölçüldü: enableFutures=False iken bakiye okunuyor, emir -2015 veriyor).
+    # Binance bu izni yalnızca IP kısıtlı anahtarlara verdiği için, ev IP'si
+    # değiştiğinde de aynı hata gelir; mesajda güncel IP'yi bildiriyoruz.
+    if not bt._testnet():
+        izin = api.api_izinleri()
+        if izin is not None and not izin.get("enableFutures", True):
+            ip = api.dis_ip()
+            uyari = ("🚫 <b>Emir açılamıyor — API anahtarında vadeli izni yok</b>\n"
+                     "<code>enableFutures=False</code>\n\n"
+                     "Binance bu izni yalnızca IP kısıtlaması uygulanmış "
+                     f"anahtarlara veriyor. Bu makinenin IP'si:\n<code>{ip}</code>\n\n"
+                     "Anahtar, vadeli hesap açılmadan ÖNCE oluşturulduysa izin "
+                     "eklenemez; yeni anahtar üretmen gerekir.")
+            print("UYARI: enableFutures=False — emirler açılamaz. IP: " + ip)
+            send_telegram(uyari)
+            return bt, api, bal
     return bt, api, bal
 
 
