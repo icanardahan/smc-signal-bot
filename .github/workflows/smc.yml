@@ -30,14 +30,20 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          # --- Otomatik işlem KAPALI ---
-          # Bot yalnızca sinyal gönderir; Binance'e hiçbir emir gitmez.
-          # Anahtarlar bilerek aktarılmıyor: BINANCE_TRADING_ENABLED repo
-          # Variables'ta 1 kalsa bile anahtar olmadan işlem açılamaz.
-          # Geri açmak için bu üç satırı geri ekle:
-          #   BINANCE_API_KEY / BINANCE_API_SECRET / BINANCE_TRADING_ENABLED
+          # --- Otomatik işlem ---
+          # Anahtarlar Secrets'ta, loglara asla yazılmaz.
+          # GERÇEK PARA için repo Variables:
+          #   BINANCE_TRADING_ENABLED=1
+          #   BINANCE_TESTNET=0        <-- 0 = GERÇEK PARA
+          #   BINANCE_DRY_RUN=0
+          # Varsayılanlar bilerek güvenli tarafta: değişken yoksa testnet
+          # ve kuru çalışma açık, yani emir gitmez.
+          BINANCE_API_KEY: ${{ secrets.BINANCE_API_KEY }}
+          BINANCE_API_SECRET: ${{ secrets.BINANCE_API_SECRET }}
+          BINANCE_TRADING_ENABLED: ${{ vars.BINANCE_TRADING_ENABLED }}
           BINANCE_TESTNET: ${{ vars.BINANCE_TESTNET || '1' }}
-          # Boş bırakılırsa koddaki varsayılan (10) geçerli olur; workflow'da
+          BINANCE_DRY_RUN: ${{ vars.BINANCE_DRY_RUN || '1' }}
+          # Boş bırakılırsa koddaki varsayılan (5) geçerli olur; workflow'da
           # sabit bir yedek yazmak kod varsayılanını sessizce eziyordu.
           SMC_MAX_OPEN: ${{ vars.SMC_MAX_OPEN }}
           SMC_RISK_PCT: ${{ vars.SMC_RISK_PCT || '2.0' }}

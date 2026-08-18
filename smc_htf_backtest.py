@@ -90,11 +90,12 @@ def simulate(sig, h4, i, ters=None):
             fill = k
             break
     if fill is None:
-        return (0.0, "expired", 0.0, i)
+        return (0.0, "expired", 0.0, i, 0.0)
 
     stop = sl
     kalan = 1.0
     R = 0.0
+    mfe = 0.0          # işlem boyunca görülen EN YÜKSEK lehte hareket (R)
     hareket = 0.0        # ağırlıklı fiyat hareketi (%)
     vurulan = 0
     son = fill
@@ -111,18 +112,20 @@ def simulate(sig, h4, i, ters=None):
     for k in range(fill, min(len(h4), fill + HOLD_TIMEOUT_BARS)):
         c = h4[k]
         son = k
+        uc = (c["high"] - e) if lg else (e - c["low"])
+        mfe = max(mfe, uc / risk)
         if (c["low"] <= stop) if lg else (c["high"] >= stop):
             kapat(kalan, stop)
             durum = "be" if vurulan else "sl"
             if vurulan:
                 durum = f"tp{vurulan}_be"
-            return (R, durum, hareket, k)
+            return (R, durum, hareket, k, mfe)
         if k == fill:                     # dolum mumunda TP sayılmaz
             continue
 
         if EXIT_ON_BREAK and ters and ters.get(k) not in (None, 1 if lg else -1):
             kapat(kalan, c["close"])
-            return (R, "yapi_bozuldu", hareket, k)
+            return (R, "yapi_bozuldu", hareket, k, mfe)
         while vurulan < 3 and EXIT_MODE != "trail":
             t = tps[vurulan]
             if t is None:
@@ -139,7 +142,7 @@ def simulate(sig, h4, i, ters=None):
             else:
                 break
         if kalan <= 1e-9:
-            return (R, f"tp{vurulan}", hareket, k)
+            return (R, f"tp{vurulan}", hareket, k, mfe)
 
         # Stopu yapının arkasından sürükle (pivot `TRAIL_LEN` bar sonra kesinleşir)
         if EXIT_MODE != "scale" and (EXIT_MODE == "trail" or vurulan >= 1):
@@ -148,7 +151,7 @@ def simulate(sig, h4, i, ters=None):
                 stop = max(stop, yeni) if lg else min(stop, yeni)
 
     kapat(kalan, h4[son]["close"])
-    return (R, f"timeout{vurulan}" if vurulan else "timeout", hareket, son)
+    return (R, f"timeout{vurulan}" if vurulan else "timeout", hareket, son, mfe)
 
 
 def main():
@@ -201,10 +204,10 @@ def main():
             if anahtar == son_ob:            # aynı order block'a tekrar girme
                 continue
             son_ob = anahtar
-            r, durum, hareket, cikis = simulate(sig, h4, k + 1, ters)
+            r, durum, hareket, cikis, mfe = simulate(sig, h4, k + 1, ters)
             rows.append({"sym": sym, "R": r, "status": durum, "move_pct": hareket,
                          "risk_pct": sig["risk_pct"], "t": h4[cikis]["close_time"],
-                         "tip": sig["tip"], "rr": sig["rr"], "dir": sig["dir"],
+                         "tip": sig["tip"], "rr": sig["rr"], "dir": sig["dir"], "mfe": mfe,
                          "t_in": h4[k]["close_time"]})
             say += 1
         print(f"[{n}/{len(symbols)}] {sym}: {say} sinyal", flush=True)

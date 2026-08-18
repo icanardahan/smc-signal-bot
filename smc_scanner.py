@@ -63,10 +63,13 @@ HOLD_TIMEOUT_BARS = 60      # 10 gün sonra pozisyon kapatılır
 # spread/kayma backtest'in komisyon modelinden yüksek olabilir.
 UNIVERSE_SIZE = int(os.environ.get("SMC_UNIVERSE") or "0")
 WORKERS = int(os.environ.get("SMC_WORKERS") or "12")
-# Aynı anda izlenecek azami pozisyon; 0 = sınırsız. Otomatik işlem kapalı
-# olduğu için bu bir risk sınırı değil, yalnızca sinyal susturucu: sınıra
-# gelince kalan kurulumlar hiç gönderilmiyordu (ölçüldü: 9 kurulumun 4'ü).
-MAX_OPEN = int(os.environ.get("SMC_MAX_OPEN") or "30")
+# Aynı anda açık pozisyon sınırı. GERÇEK PARADA bu bir risk sınırıdır:
+# her işlem bakiyenin %2'sini riske ettiği için 5 slot = aynı anda %10 risk.
+# 30 slot sinyal servisi içindi (%60 risk demek olurdu) ve hiç test edilmedi.
+# Portföy simülasyonunda ölçülenler: 3 slot 499$/%25 düşüş, 5 slot 433$/%30,
+# 10 slot 358$/%31. Kripto korelasyonu +0.25 olduğu için bu pozisyonlar
+# birbirini dengelemiyor (etkin bağımsız işlem ~3.4).
+MAX_OPEN = int(os.environ.get("SMC_MAX_OPEN") or "5")
 RISK_PCT_OF_BALANCE = float(os.environ.get("SMC_RISK_PCT") or "2.0")
 LEVERAGE = 10
 
