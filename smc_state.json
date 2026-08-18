@@ -33,15 +33,15 @@
   ],
   "kosu": {
     "ilk": 1786897777,
-    "sayi": 35,
-    "son": 1787025594
+    "sayi": 36,
+    "son": 1787028844
   },
   "positions": {
     "AGLDUSDT": {
-      "bars": 9,
+      "bars": 10,
       "dir": "short",
       "entry": 0.16075,
-      "last_bar": 1787011199999,
+      "last_bar": 1787025599999,
       "risk_pct": 0.8786936236391981,
       "rr": 2.867256637168118,
       "signal_time": 1786881599999,
@@ -52,11 +52,11 @@
       "trailed": false
     },
     "ATOMUSDT": {
-      "bars": 9,
+      "bars": 10,
       "dir": "short",
       "entry": 1.5045000000000002,
       "fill_time": 1786881599999,
-      "last_bar": 1787011199999,
+      "last_bar": 1787025599999,
       "risk_pct": 1.1240089256041284,
       "rr": 1.9218585005280144,
       "signal_time": 1786852799999,
@@ -83,12 +83,12 @@
       "trailed": true
     },
     "BELUSDT": {
-      "bars": 0,
+      "bars": 1,
       "dir": "long",
       "entry": 0.1057,
       "fill_time": 1787011199999,
       "hacim_sirasi": 33,
-      "last_bar": 1787011199999,
+      "last_bar": 1787025599999,
       "risk_pct": 2.4986484660089148,
       "rr": 1.628127112914134,
       "signal_time": 1786924799999,
