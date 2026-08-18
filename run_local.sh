@@ -56,6 +56,11 @@ PY
 }
 
 tarama_yap() {
+  # Ayarları HER turda yeniden oku. Döngü .env'i yalnızca başlangıçta
+  # okuyordu; DRY_RUN veya sınır değiştirildiğinde süreç yeniden
+  # başlatılmadan hiçbir şey değişmiyordu ve bu sessizce oluyordu
+  # (kullanıcı DRY_RUN=0 yaptı, döngü kuru çalışmaya devam etti).
+  set -a; source .env; set +a
   kilit_al || return 0
   mkdir -p logs
   local LOG="logs/$(date +%Y-%m-%d).log"
