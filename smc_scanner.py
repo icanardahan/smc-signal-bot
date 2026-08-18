@@ -359,7 +359,10 @@ def signal_message(symbol, sig, bal):
     # işlem başına bakiyenin %2'sini riske eden sizing ile ölçüldü.
     uzun = sig["dir"] == "long"
     risk_usdt = bal * RISK_PCT_OF_BALANCE / 100
-    notional = min(risk_usdt / (sig["risk_pct"] / 100), bal / MAX_OPEN * LEVERAGE)
+    # MAX_OPEN=0 (sınırsız) durumunda bölme yapılamaz; binance_trader ile
+    # AYNI tavan kullanılır (bakiyenin %10'u = 10 slotluk ayarın karşılığı).
+    pay = (1.0 / MAX_OPEN) if MAX_OPEN else 0.10
+    notional = min(risk_usdt / (sig["risk_pct"] / 100), bal * pay * LEVERAGE)
     marj = notional / LEVERAGE
     return (
         f"{'🟢' if uzun else '🔴'} <b>{symbol} {sig['dir'].upper()}</b>  (SMC H/G/4S)\n"
