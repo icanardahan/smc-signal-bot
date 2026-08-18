@@ -189,20 +189,34 @@ class BinanceFutures:
         return self._request("GET", "/fapi/v1/openOrders", params, signed=True)
 
     def setup_symbol(self, symbol, leverage=LEVERAGE):
-        """Kaldıraç ve izole marjin ayarı. Zaten ayarlıysa borsa hata döner,
-        bu normaldir ve yutulur."""
+        """Kaldıraç + İZOLE marjin ayarı. Başarılıysa True döner.
+
+        İzole marjin şart: cross marjinde tek bir işlemin zararı TÜM bakiyeyi
+        yiyebilir, izolede ise yalnızca o pozisyonun marjını. Eskiden buradaki
+        hata sessizce yutuluyordu; ayar tutmazsa pozisyon cross açılır ve bunu
+        kimse fark etmezdi. Artık ayarlanamazsa False dönüp işlem atlanıyor.
+
+        Borsa zaten izole ise -4046 ("No need to change margin type") döner;
+        bu bir hata değildir."""
         if self.dry:
-            return
+            return True
+        tamam = True
         try:
             self._request("POST", "/fapi/v1/leverage",
                           {"symbol": symbol, "leverage": int(leverage)}, signed=True)
         except RuntimeError as e:
-            print(f"  [{symbol}] kaldıraç: {e}")
+            print(f"  [{symbol}] kaldıraç ayarlanamadı: {e}")
+            tamam = False
         try:
             self._request("POST", "/fapi/v1/marginType",
                           {"symbol": symbol, "marginType": "ISOLATED"}, signed=True)
-        except RuntimeError:
-            pass   # "No need to change margin type" — zaten izole
+        except RuntimeError as e:
+            if "-4046" in str(e):
+                pass                      # zaten izole
+            else:
+                print(f"  [{symbol}] İZOLE marjin ayarlanamadı: {e}")
+                tamam = False
+        return tamam
 
     # ---------------- emirler ----------------
     def _order(self, params):
@@ -445,7 +459,10 @@ def open_trade_trailing(api, symbol, direction, entry, sl, balance,
     if qty <= 0:
         return None
 
-    api.setup_symbol(symbol, kald)
+    if not api.setup_symbol(symbol, kald):
+        print(f"  [{symbol}] kaldıraç/izole marjin kurulamadı — işlem ATLANDI "
+              f"(cross marjinde açmaktansa hiç açmamak yeğdir)")
+        return None
     print(f"  [{symbol}] {direction.upper()} giriş={entry} miktar={qty} "
           f"nominal≈{notional:.1f} USDT marj≈{notional / kald:.2f} "
           f"kaldıraç={kald}x (stop %{100 * risk_frac:.2f}, "
