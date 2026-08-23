@@ -222,14 +222,22 @@ def monitor(pos, h4):
             else:
                 continue
 
+        # Dolum mumunda STOP KONTROLÜ YAPILMAZ. Eskiden stop kontrolü bu
+        # kontrolden ÖNCE yapılıyordu; geniş bir mumda fiyat hem girişe hem
+        # stop seviyesine değince bot pozisyonu "stopped" sayıp izlemeyi
+        # BIRAKIYORDU — ama borsada stop emri henüz hiç kurulmamıştı (bir
+        # sonraki adımda kurulacaktı), yani pozisyon gerçekte AÇIK ve
+        # KORUMASIZ kalmaya devam ediyordu ve bot artık onu görmüyordu.
+        # PAXGUSDT'de tam bu yaşandı. Backtest'teki simulate() de aynı
+        # kuralı uygular: dolum mumunda ne kâr ne zarar sayılmaz.
+        if just_filled:
+            continue
+
         if (c["low"] <= stop) if is_long else (c["high"] >= stop):
             pos["status"] = "trail_stop" if pos.get("trailed") else "stopped"
             pos["exit"] = stop
             olaylar.append((pos["status"], c))
             break
-
-        if just_filled:                    # dolum mumunda stop sürüklenmez
-            continue
 
         yeni = tl[k]
         if yeni is not None:
@@ -475,7 +483,7 @@ def main():
     # (ne pozisyon ne emir) o kayıt gerçek değildir ve slot işgal eder.
     if api and not kuru:
         try:
-            borsa_poz = set(api.positions())
+            borsa_poz = api.positions()   # dict: {symbol: {amt, entry, side}}
             borsa_emir = {o["symbol"] for o in api.open_orders()}
             hayalet = [s for s, p in positions.items()
                        if p["status"] == "pending"
@@ -490,6 +498,29 @@ def main():
                     f"{len(hayalet)} bekleyen kaydın Binance'te karşılığı yoktu "
                     f"(ne pozisyon ne emir): {', '.join(hayalet)}\n"
                     f"Slotlar boşaltıldı.")
+
+            # TERSİ yön: state "kapandı" diyor ama borsada pozisyon HÂLÂ
+            # AÇIK. Bu, monitor()'un mum verisine göre "stopa değdi" tahmini
+            # ile gerçek borsa durumu arasında (özellikle geçmişte yaşanan
+            # dolum-mumunda-stop hatası yüzünden) uyuşmazlık olduğunda
+            # oluşur — CLOSED_STATES'e düşen kayıt bir daha hiç izlenmez ve
+            # borsadaki pozisyon sonsuza kadar unutulurdu.
+            unutulan = [s for s, p in positions.items()
+                        if p["status"] in CLOSED_STATES and s in borsa_poz]
+            if unutulan:
+                print(f"UYARI: {len(unutulan)} kayıt 'kapandı' sanılıyordu "
+                      f"ama borsada hâlâ AÇIK: {', '.join(unutulan)}")
+                for s in unutulan:
+                    pb = borsa_poz[s]
+                    positions[s]["status"] = "open"
+                    positions[s]["dir"] = pb["side"]
+                    positions[s]["entry"] = pb["entry"]
+                    positions[s].pop("kaydedildi", None)
+                send_telegram(
+                    f"🚨 <b>Unutulmuş pozisyon bulundu</b>\n"
+                    f"{len(unutulan)} kayıt kapandı sanılıyordu, borsada hâlâ "
+                    f"açık: {', '.join(unutulan)}\nYeniden izlemeye alındı, "
+                    f"koruma kontrol ediliyor.")
         except Exception as e:
             print(f"borsa mutabakatı yapılamadı: {e}")
 
@@ -510,6 +541,23 @@ def main():
             seriler[symbol] = getiri_serisi(h4)
 
         olaylar = monitor(pos, h4)
+
+        # Dolumu MUM KAPANMASINI BEKLEMEDEN yakala. monitor() yalnızca
+        # KAPANMIŞ mumlara bakar; bir limit emir 4H bar henüz kapanmadan
+        # içeride dolabilir ve bu durumda status "pending" kalmaya devam
+        # eder — ta ki bar kapanana kadar (en kötü ~4 saat). O süre boyunca
+        # ensure_protection hiç çağrılmıyordu ve pozisyon borsada tamamen
+        # açık, stopsuz kalıyordu (15 pozisyonda böyle yaşandı, ölçüldü).
+        if api and pos["status"] == "pending":
+            try:
+                p_borsa = api.positions().get(symbol)
+                if p_borsa and p_borsa["amt"]:
+                    pos["status"] = "open"
+                    pos["fill_time"] = int(time.time() * 1000)
+                    pos["bars"] = 0
+                    olaylar.append(("filled", h4[-1] if h4 else {"close": pos["entry"]}))
+            except Exception as e:
+                print(f"  [{symbol}] borsa pozisyon kontrolü başarısız: {e}")
 
         # Dayandığı YAPI hâlâ ayakta mı?
         #   bekleyen -> emri beklemenin anlamı yok, listeden düşer
@@ -532,6 +580,25 @@ def main():
             except Exception as e:
                 print(f"  [{symbol}] geçerlilik kontrolü yapılamadı: {e}")
 
+        # Kapanış olayları (stopped/trail_stop/timeout) botun KENDİ mum
+        # simülasyonuna dayanır — canlıda bu bir tahmindir, kanıt değil.
+        # Ölçüldü: PAXGUSDT için bot "trail_stop" (kapandı) dedi ama borsada
+        # pozisyon HÂLÂ AÇIKTI (gerçek stop henüz o seviyeye taşınmamıştı).
+        # Böyle bir olay borsayla doğrulanmadan geçerse hem yanlış bir
+        # "kapandı" mesajı gider hem de kâğıt geçmişine sahte kayıt girer.
+        if api and pos["status"] in CLOSED_STATES:
+            try:
+                hâlâ_acik = symbol in api.positions()
+            except Exception:
+                hâlâ_acik = False   # borsaya sorulamadıysa iyimser davranma
+            if hâlâ_acik:
+                print(f"  [{symbol}] {pos['status']} SİMÜLE EDİLDİ ama borsada "
+                      f"hâlâ açık — olay İPTAL, izlemeye devam")
+                pos["status"] = "open"
+                pos.pop("exit", None)
+                olaylar = [(e, c) for e, c in olaylar
+                          if e not in ("stopped", "trail_stop", "timeout")]
+
         for event, candle in olaylar:
             print(f"  [{symbol}] {event}")
             send_telegram(event_message(symbol, pos, event, candle))
@@ -549,7 +616,19 @@ def main():
                     # üretilmediği için fark hiç kapanmıyordu.
                     bt.update_stop(api, symbol, pos["dir"], pos["stop"])
             except Exception as e:
+                # Bu hata eskiden yalnızca terminale yazılıyordu. Yaşandı:
+                # PAXGUSDT'de update_stop eski stopu iptal edip yeniyi
+                # koyamadı, pozisyon bir tur boyunca TAMAMEN KORUMASIZ kaldı
+                # ve kimseye haber gitmedi — bu tam olarak fark edilmemesi
+                # gereken türden bir olay. "KORUMASIZ" geçen hatalar artık
+                # acil Telegram uyarısı olarak gidiyor.
                 print(f"  [{symbol}] koruma/stop mutabakatı başarısız: {e}")
+                if "KORUMASIZ" in str(e):
+                    send_telegram(
+                        f"🚨🚨 <b>{symbol} KORUMASIZ</b>\n"
+                        f"Stop taşınamadı ve pozisyonun borsada koruma emri "
+                        f"YOK olabilir. Binance'i hemen kontrol et.\n"
+                        f"Hata: {str(e)[:200]}")
 
         if pos["status"] in CLOSED_STATES and not pos.get("kaydedildi"):
             pos["kaydedildi"] = True
@@ -680,6 +759,43 @@ def main():
         fiyatlar[symbol] = son_fiyat
         seriler[symbol] = seri
         acik += 1
+
+    # SON GÜVENLİK AĞI: hangi sebepten olursa olsun (bilinen/bilinmeyen hata,
+    # zamanlama sorunu, API gecikmesi) korumasız kalan pozisyon MUTLAKA
+    # yakalanır. Bu turda tam olarak böyle bir durum yaşandı — ensure_protection
+    # çağrılması gerekirken sessizce atlandı, sebep tam olarak tespit
+    # edilemedi. Kök sebep bulunamasa bile bu kontrol açığı kapatır.
+    if api and not kuru:
+        try:
+            son_poz = api.positions()
+            son_algo = api.algo_open_orders()
+            son_stoplu = {o.get("symbol") for o in son_algo
+                         if (o.get("orderType") or o.get("type")) == "STOP_MARKET"}
+            korumasiz = [s for s in son_poz if s not in son_stoplu]
+            if korumasiz:
+                print(f"SON KONTROL: {len(korumasiz)} pozisyon KORUMASIZ, "
+                      f"acil stop koyuluyor: {', '.join(korumasiz)}")
+                for sym in korumasiz:
+                    p = son_poz[sym]
+                    try:
+                        fiyat = float(api._request(
+                            "GET", "/fapi/v1/ticker/price", {"symbol": sym})["price"])
+                        acil = api.round_price(
+                            sym, fiyat * (1.015 if p["side"] == "short" else 0.985))
+                        api.place_stop(sym, p["side"], acil)
+                        print(f"  [{sym}] acil stop kondu @ {acil}")
+                    except Exception as e:
+                        print(f"  [{sym}] ACİL STOP DA BAŞARISIZ: {e}")
+                        send_telegram(f"🚨🚨🚨 <b>{sym} KORUMASIZ VE ACİL STOP "
+                                      f"KONULAMADI</b>\nHemen Binance'i kontrol et.\n{e}")
+                        continue
+                send_telegram(
+                    f"🚨 <b>Son kontrolde {len(korumasiz)} korumasız pozisyon "
+                    f"bulundu</b>\n{', '.join(korumasiz)}\n"
+                    f"Acil stop kondu, ama NEDEN korumasız kaldığı bilinmiyor "
+                    f"— logu kontrol et.")
+        except Exception as e:
+            print(f"son güvenlik kontrolü yapılamadı: {e}")
 
     save_state(state)
     send_telegram(summary_message(len(symbols), say["degerlendirilen"],

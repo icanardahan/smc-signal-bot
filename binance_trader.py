@@ -364,10 +364,17 @@ def open_trade(api, symbol, direction, entry, sl, tps, balance):
 def update_stop(api, symbol, direction, new_stop):
     """Sürüklenen stop: koruma emrini yeni seviyeye taşır.
 
-    ÖNCE yeni emri koyar, SONRA eskisini iptal eder. Ters sırada yapılsaydı
-    ikisi arasında pozisyon korumasız kalırdı. İki `closePosition` stopun bir
-    an birlikte durması zararsız: hangisi tetiklenirse pozisyon kapanır ve
-    Binance diğerini kendisi iptal eder."""
+    ÖNCE eskiyi iptal eder, SONRA yeni emri koyar. Ters sıra (önce yeni,
+    sonra eski) denendi ve ÇALIŞMIYOR: Binance aynı sembol+yönde iki
+    closePosition STOP_MARKET emrini aynı anda kabul etmiyor
+    (-4130 "An open stop or take profit order with GTE and closePosition
+    in the direction is existing"). O sırayla fonksiyon hep başarısız
+    oluyordu ve stop HİÇ SÜRÜKLENMİYORDU — sessizce, fark edilmeden.
+
+    Bu sırada iptal ile yeni emrin arasında kısa bir an (bir istek turu)
+    pozisyon stopsuz kalır. Bu risk, kabul edilmiş: alternatifi stopun hiç
+    güncellenmemesiydi, ki bu daha kötü. Yeni emir başarısız olursa eski
+    zaten iptal edilmiş olabileceği için sonuç Telegram'a bildirilir."""
     new_stop = api.round_price(symbol, new_stop)
     try:
         orders = api.algo_open_orders(symbol)
@@ -388,12 +395,39 @@ def update_stop(api, symbol, direction, new_stop):
     if any(_trig(o) == new_stop for o in eski):
         return False                      # zaten doğru seviyede
 
-    api.place_stop(symbol, direction, new_stop)
     for o in eski:
         try:
             api.cancel_algo(o.get("algoId") or o.get("orderId"))
         except Exception as e:
             print(f"  [{symbol}] eski stop iptal edilemedi: {e}")
+
+    try:
+        api.place_stop(symbol, direction, new_stop)
+    except Exception as e:
+        # -2021 "Order would immediately trigger": fiyat hesaplanan yeni
+        # stopu ZATEN geçmiş (yaşandı — PAXGUSDT bu yüzden bir tur boyunca
+        # tamamen korumasız kaldı, hata sadece terminale yazılıyor, Telegram'a
+        # gitmiyordu). Eski emir zaten iptal edildiği için burada durmak
+        # pozisyonu tamamen açıkta bırakır. Güncel fiyata göre bir güvenlik
+        # tamponuyla HEMEN yeniden dene; bu, elle yaptığım acil müdahalenin
+        # otomatikleşmiş hali.
+        if "-2021" in str(e):
+            try:
+                fiyat = float(api._request(
+                    "GET", "/fapi/v1/ticker/price", {"symbol": symbol})["price"])
+                guvenli = api.round_price(
+                    symbol, fiyat * (1.015 if direction == "short" else 0.985))
+                api.place_stop(symbol, direction, guvenli)
+                print(f"  [{symbol}] hedef stop {new_stop} tetiklenirdi, "
+                      f"güvenlik tamponuyla {guvenli} kondu")
+                return True
+            except Exception as e2:
+                print(f"  [{symbol}] GÜVENLİK TAMPONU DA BAŞARISIZ, "
+                      f"POZİSYON KORUMASIZ: {e2}")
+                raise RuntimeError(f"[{symbol}] KORUMASIZ: {e2}") from None
+        print(f"  [{symbol}] YENİ STOP KONULAMADI (eski iptal edildi, "
+              f"pozisyon ŞU AN KORUMASIZ OLABİLİR): {e}")
+        raise RuntimeError(f"[{symbol}] KORUMASIZ: {e}") from None
     print(f"  [{symbol}] stop taşındı → {new_stop}")
     return True
 
