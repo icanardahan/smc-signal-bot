@@ -344,18 +344,22 @@ def summary_message(taranan, degerlendirilen, kurulum, positions, fiyatlar,
         satir.append("")
         for s, p in sorted(canli, key=lambda x: x[1]["status"]):
             yon = p["dir"].upper()
+            # TP'ler yalnızca referans (kapatma yapılmaz) — bkz. signal_message.
+            tp_liste = [t for t in (p.get("tps") or []) if t is not None]
+            tp_str = f"  TP: {' / '.join(_fmt(t) for t in tp_liste)}" if tp_liste else ""
             if p["status"] == "pending":
                 f = fiyatlar.get(s)
                 uzak = f"  (fiyat {_fmt(f)}, %{abs(f - p['entry']) / p['entry'] * 100:.1f} uzakta)" \
                     if f else ""
-                satir.append(f"⏳ <b>{s}</b> {yon} bekliyor @ {_fmt(p['entry'])}{uzak}")
+                satir.append(f"⏳ <b>{s}</b> {yon} bekliyor @ {_fmt(p['entry'])}{uzak}"
+                             f"{tp_str}")
             else:
                 f = fiyatlar.get(s)
                 kz = f"  <b>{pnl_pct(p, f):+.2f}%</b>" if f else ""
                 kilit = " 🔒" if p.get("trailed") else ""
                 kilit += " ⚠️yapı" if p.get("uyarildi") else ""
                 satir.append(f"▶️ <b>{s}</b> {yon} @ {_fmt(p['entry'])}{kz}\n"
-                             f"     stop {_fmt(p['stop'])}{kilit}")
+                             f"     stop {_fmt(p['stop'])}{kilit}{tp_str}")
     else:
         satir.append("\nAçık pozisyon yok.")
     return "\n".join(satir)
@@ -770,7 +774,7 @@ def main():
             "sl": sig["sl"], "stop": sig["sl"], "trailed": False, "bars": 0,
             "signal_time": bar_time, "last_bar": bar_time,
             "rr": sig["rr"], "risk_pct": sig["risk_pct"], "tip": sig["tip"],
-            "hacim_sirasi": sira.get(symbol),
+            "hacim_sirasi": sira.get(symbol), "tps": sig["tps"],
         }
         fiyatlar[symbol] = son_fiyat
         seriler[symbol] = seri
