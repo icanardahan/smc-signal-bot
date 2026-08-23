@@ -372,16 +372,32 @@ def signal_message(symbol, sig, bal):
     pay = (1.0 / MAX_OPEN) if MAX_OPEN else 0.10
     notional = min(risk_usdt / (sig["risk_pct"] / 100), bal * pay * LEVERAGE)
     marj = notional / LEVERAGE
+    risk_mesafe = abs(sig["entry"] - sig["sl"])
+
+    # TP1/TP2/TP3 yalnızca REFERANS — otomatik kısmi kapatma YOK, çıkışı hâlâ
+    # sürüklenen stop yönetiyor. Ölçüldü: sabit kademeli TP ile kısmi kapatma
+    # +0.122R (t=1.71, gürültü) veriyordu, sürüklenen stopla +0.240R
+    # (t=2.33) — kazancın çoğu birkaç büyük işlemden geldiği için TP1'de
+    # yarıyı kapatmak tam da onları kesiyordu. Bu satırlar sadece "fiyat
+    # buraya gelirse R:R şu olur" bilgisini veriyor.
+    tp_satirlari = []
+    for i, tp in enumerate(sig["tps"], 1):
+        if tp is None:
+            continue
+        rr = abs(tp - sig["entry"]) / risk_mesafe if risk_mesafe else 0
+        tp_satirlari.append(f"  TP{i}: {_fmt(tp)}  (R:R {rr:.2f})")
+    tp_blok = "\n".join(tp_satirlari) if tp_satirlari else "  (hesaplanamadı)"
+
     return (
         f"{'🟢' if uzun else '🔴'} <b>{symbol} {sig['dir'].upper()}</b>  (SMC H/G/4S)\n"
         f"<i>{sig['tip']} — order block girişi</i>\n\n"
         f"Giriş (limit) : <b>{_fmt(sig['entry'])}</b>\n"
         f"Başlangıç stop: <b>{_fmt(sig['sl'])}</b>  (%{sig['risk_pct']:.2f})\n"
-        f"Referans hedef: {_fmt(sig['tps'][0])}  (R:R {sig['rr']:.2f})\n\n"
+        f"Referans hedefler (kapatma yapılmaz):\n{tp_blok}\n\n"
         f"⚠️ <b>Sabit kâr al yok.</b> Stop, 4H yapının arkasından "
         f"{'yukarı' if uzun else 'aşağı'} "
-        f"sürüklenir; işlem stop ile kapanır. Referans hedef yalnızca "
-        f"kurulum filtresidir, orada kapatma yapılmaz.\n\n"
+        f"sürüklenir; işlem stop ile kapanır. TP seviyeleri yalnızca "
+        f"kurulum filtresi/referanstır, orada otomatik kapatma yapılmaz.\n\n"
         f"Büyüklük: <b>{notional:.1f} USDT</b> nominal "
         f"(~{marj:.2f} USDT marj, {LEVERAGE}x izole)\n"
         f"Riskin: <b>{risk_usdt:.2f} USDT</b> — stop mesafesi %{sig['risk_pct']:.2f} "
