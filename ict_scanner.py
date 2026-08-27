@@ -926,6 +926,31 @@ def format_open_positions_digest(items):
 
 
 # ---------------- Telegram ----------------
+TELEGRAM_LIMIT = 4000     # Telegram sınırı 4096; pay bırakıldı
+
+
+def _telegram_parcala(message, limit=TELEGRAM_LIMIT):
+    """Uzun mesajı satır sınırlarında böler — bir HTML etiketinin ortasından
+    kesmemek için. Ölçüldü: sınırsız pozisyon sayısıyla (MAX_OPEN=0) özet
+    mesajı 8341 karaktere çıkıp Telegram'dan 400 Bad Request almıştı; bot
+    o turda kullanıcıya HİÇBİR özet gönderemedi."""
+    if len(message) <= limit:
+        return [message]
+    parcalar, mevcut = [], ""
+    for satir in message.split("\n"):
+        aday = f"{mevcut}\n{satir}" if mevcut else satir
+        if len(aday) > limit:
+            if mevcut:
+                parcalar.append(mevcut)
+            # Tek satırın kendisi limitten uzunsa (nadir) onu da böl
+            mevcut = satir if len(satir) <= limit else satir[:limit]
+        else:
+            mevcut = aday
+    if mevcut:
+        parcalar.append(mevcut)
+    return parcalar
+
+
 def send_telegram(message):
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     chat_id = os.environ.get("TELEGRAM_CHAT_ID")
@@ -933,16 +958,20 @@ def send_telegram(message):
         print("TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID tanımlı değil, mesaj gönderilemedi:")
         print(message)
         return
-    payload = json.dumps({"chat_id": chat_id, "text": message,
-                          "parse_mode": "HTML"}).encode()
-    req = urllib.request.Request(f"https://api.telegram.org/bot{token}/sendMessage",
-                                 data=payload,
-                                 headers={"Content-Type": "application/json"})
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            resp.read()
-    except Exception as e:
-        print(f"Telegram gönderim hatası: {e}")
+    parcalar = _telegram_parcala(message)
+    for i, parca in enumerate(parcalar):
+        if len(parcalar) > 1:
+            parca = f"({i + 1}/{len(parcalar)})\n{parca}"
+        payload = json.dumps({"chat_id": chat_id, "text": parca,
+                              "parse_mode": "HTML"}).encode()
+        req = urllib.request.Request(f"https://api.telegram.org/bot{token}/sendMessage",
+                                     data=payload,
+                                     headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                resp.read()
+        except Exception as e:
+            print(f"Telegram gönderim hatası: {e}")
 
 
 def _tp(tp, rr):

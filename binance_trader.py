@@ -206,6 +206,26 @@ class BinanceFutures:
                 }
         return out
 
+    def realized_pnl(self, limit=1000):
+        """Borsadaki GERÇEK kâr/zarar — /fapi/v1/income üzerinden.
+
+        Kâğıt üzerindeki simülasyon (smc_scanner.pnl_usd) her işlemi sabit
+        100 USDT nominal varsayar, ama gerçek pozisyonlar risk-bazlı
+        boyutlandırılıyor (stop mesafesine göre nominal 11-150 USDT arası
+        değişiyor). Ölçüldü: kâğıt hesap -95.63$ derken gerçek net sonuç
+        +5.97$ idi — iki değer birbiriyle KIYASLANAMAZ. Bu fonksiyon tek
+        güvenilir kaynaktır."""
+        pnl = self._request("GET", "/fapi/v1/income",
+                            {"incomeType": "REALIZED_PNL", "limit": limit},
+                            signed=True)
+        fee = self._request("GET", "/fapi/v1/income",
+                            {"incomeType": "COMMISSION", "limit": limit},
+                            signed=True)
+        toplam_pnl = sum(float(x["income"]) for x in pnl)
+        toplam_fee = sum(float(x["income"]) for x in fee)
+        return {"pnl": toplam_pnl, "komisyon": toplam_fee,
+                "net": toplam_pnl + toplam_fee, "islem_sayisi": len(pnl)}
+
     def open_orders(self, symbol=None):
         params = {"symbol": symbol} if symbol else {}
         return self._request("GET", "/fapi/v1/openOrders", params, signed=True)

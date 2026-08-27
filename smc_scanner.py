@@ -294,8 +294,17 @@ def pnl_pct(pos, price):
 
 # ---------------- Mesajlar ----------------
 def summary_message(taranan, degerlendirilen, kurulum, positions, fiyatlar,
-                    gecmis, seriler=None):
-    """Her taramada gönderilen özet: ne tarandı, ne açık, toplam kâr/zarar."""
+                    gecmis, seriler=None, gercek_pnl=None):
+    """Her taramada gönderilen özet: ne tarandı, ne açık, toplam kâr/zarar.
+
+    gercek_pnl (varsa): api.realized_pnl() çıktısı — Binance'teki GERÇEK
+    kâr/zarar. Bu, kullanıcının bir kez yakaladığı ciddi bir karışıklığın
+    düzeltmesidir: "kâğıt üzerinde sonuç" her işlemi sabit 100 USDT nominal
+    varsayar, ama gerçek pozisyonlar risk-bazlı boyutlandırılıyor (nominal
+    işlemden işleme 11-150 USDT arası değişiyor). Ölçüldü: kâğıt hesap
+    -95.63$ derken gerçek Binance net sonucu +5.97$ idi — ikisi
+    KIYASLANAMAZ. Gerçek sonuç varsa ondan sonra kâğıt bölümü yalnızca
+    isabet oranı/örüntü göstergesi olarak, açıkça etiketlenmiş sunulur."""
     canli = [(s, p) for s, p in positions.items() if p["status"] in LIVE_STATES]
 
     kapanan = pnl_usd_toplam = 0.0
@@ -317,16 +326,24 @@ def summary_message(taranan, degerlendirilen, kurulum, positions, fiyatlar,
              f"Taranan: <b>{taranan}</b> sembol "
              f"(değerlendirilen {degerlendirilen})",
              f"Bulunan kurulum: <b>{kurulum}</b>",
-             f"Açık/bekleyen: <b>{len(canli)}</b>/{sinir}",
-             "",
-             f"💰 <b>Kâğıt üzerinde sonuç</b> "
-             f"(işlem başına {PAPER_MARGIN:.0f}$ marj, {PAPER_LEVERAGE}x)",
+             f"Açık/bekleyen: <b>{len(canli)}</b>/{sinir}"]
+
+    if gercek_pnl:
+        satir += ["",
+                  f"💵 <b>Gerçek Binance sonucu</b> ({gercek_pnl['islem_sayisi']} işlem)",
+                  f"Kâr/zarar: {gercek_pnl['pnl']:+.2f}$  Komisyon: "
+                  f"{gercek_pnl['komisyon']:+.2f}$",
+                  f"Net: <b>{gercek_pnl['net']:+.2f}$</b>"]
+
+    satir += ["",
+             f"📝 <b>Kâğıt üzerinde isabet göstergesi</b> "
+             f"(GERÇEK $ DEĞİL — her işlem sabit {PAPER_MARGIN:.0f}$ marj/"
+             f"{PAPER_LEVERAGE}x varsayılır; yalnızca isabet/R eğilimi içindir)",
              f"Kapanan {int(kapanan)} işlem"
              + (f", isabet %{100 * kazanan / kapanan:.0f}" if kapanan else "")
-             + f" → <b>{pnl_usd_toplam:+.2f}$</b>"]
+             + f" → {pnl_usd_toplam:+.2f}$ (kâğıt)"]
     if acik_pnl:
-        satir.append(f"Açık pozisyonlar: <b>{acik_pnl:+.2f}$</b>")
-        satir.append(f"Toplam: <b>{pnl_usd_toplam + acik_pnl:+.2f}$</b>")
+        satir.append(f"Açık pozisyonlar (kâğıt): {acik_pnl:+.2f}$")
 
     # Sinyaller bağımsız mı? Kripto pariteleri birlikte hareket ettiği için
     # N sinyal N ayrı bahis değildir; bu satır kaç bahsin olduğunu söyler.
@@ -837,10 +854,17 @@ def main():
         except Exception as e:
             print(f"son güvenlik kontrolü yapılamadı: {e}")
 
+    gercek_pnl = None
+    if api and not kuru:
+        try:
+            gercek_pnl = api.realized_pnl()
+        except Exception as e:
+            print(f"gerçek PnL okunamadı: {e}")
+
     save_state(state)
     send_telegram(summary_message(len(symbols), say["degerlendirilen"],
                                   len(bulunan), positions, fiyatlar, gecmis,
-                                  seriler))
+                                  seriler, gercek_pnl))
 
     # Haftalık karne
     if simdi_ts - kosu.get("son_rapor", kosu["ilk"]) >= 7 * 86400:
