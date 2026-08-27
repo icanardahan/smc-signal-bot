@@ -739,6 +739,26 @@ def main():
             print("Eşzamanlı pozisyon sınırı dolu, kalan kurulumlar alınmadı.")
             break
 
+        # Nominal, borsanın minimum işlem büyüklüğünün altında kalacaksa
+        # sinyali BAŞTAN atla. Ölçüldü: ETCUSDT/PYTHUSDT gibi geniş stoplu
+        # semboller için nominal min_notional altında kalıyordu, emir
+        # SÜREKLİ reddediliyordu, state'e hiç kaydedilmediği için sembol
+        # aday listesinden hiç düşmüyordu — aynı sinyal her 5 dakikada bir
+        # (bir günde 78 kez) Telegram'a "yeni kurulum" olarak gidiyordu.
+        if api and not kuru:
+            try:
+                kald = bt.safe_leverage(sig["risk_pct"] / 100)
+                notional = bt.risk_based_notional(
+                    api, symbol, sig["entry"], sig["sl"], bal,
+                    RISK_PCT_OF_BALANCE, MAX_OPEN, leverage=kald)
+                if notional < api.min_notional(symbol):
+                    print(f"[{symbol}] nominal {notional:.1f} < min "
+                          f"{api.min_notional(symbol)} — sinyal atlandı "
+                          f"(bakiye/risk bu sembolde yetersiz)")
+                    continue
+            except Exception as e:
+                print(f"[{symbol}] ön boyut kontrolü yapılamadı: {e}")
+
         print(f"[{symbol}] KURULUM {sig['tip']} giriş={sig['entry']:.6g} "
               f"stop={sig['sl']:.6g} R:R={sig['rr']:.2f}")
         send_telegram(signal_message(symbol, sig, bal))
