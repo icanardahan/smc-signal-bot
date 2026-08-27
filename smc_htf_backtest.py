@@ -60,6 +60,15 @@ EXIT_ON_BREAK = os.environ.get("EXIT_ON_BREAK", "0") == "1"
 TRAIL_LEN = 5              # stopun arkasına çekileceği pivot uzunluğu
 DIR_FILTER = os.environ.get("DIR_FILTER", "")   # "long" | "short" | ""
 
+# --- Yeni filtreler (varsayılan KAPALI — mevcut ölçülmüş davranışı bozmaz) ---
+USE_FIB = os.environ.get("USE_FIB", "0") == "1"
+FIB_MIN = float(os.environ.get("FIB_MIN", "0.618"))
+FIB_MAX = float(os.environ.get("FIB_MAX", "0.786"))
+USE_TREND = os.environ.get("USE_TREND", "0") == "1"
+TREND_LEN = int(os.environ.get("TREND_LEN", "200"))
+USE_VOLUME = os.environ.get("USE_VOLUME", "0") == "1"
+VOLUME_MULT = float(os.environ.get("VOLUME_MULT", "2.0"))
+
 
 def evaluate(h4, daily, weekly):
     """Kurulum arama artık smc_htf.find_setup içinde — canlı bot da AYNI
@@ -70,7 +79,10 @@ def evaluate(h4, daily, weekly):
                           max_rr=MAX_RR, liq_len=LIQ_LEN,
                           discount_max=DISCOUNT_MAX,
                           require_choch=REQUIRE_CHOCH,
-                          dir_filter=DIR_FILTER or None)
+                          dir_filter=DIR_FILTER or None,
+                          use_fib=USE_FIB, fib_min=FIB_MIN, fib_max=FIB_MAX,
+                          use_trend=USE_TREND, trend_len=TREND_LEN,
+                          use_volume=USE_VOLUME, volume_mult=VOLUME_MULT)
 
 
 def simulate(sig, h4, i, ters=None):
@@ -205,6 +217,11 @@ def main():
                 continue
             son_ob = anahtar
             r, durum, hareket, cikis, mfe = simulate(sig, h4, k + 1, ters)
+            # "expired" dönüşünde cikis = i = k+1 olabilir; bu, sinyal verinin
+            # SON barında bulunduğunda len(h4)'e eşit çıkıp IndexError verirdi
+            # (nadir — end=now() her koşuda kaydığı için rastgele tetiklenir).
+            # Yalnızca zaman damgası için kullanıldığından sınırlamak güvenli.
+            cikis = min(cikis, len(h4) - 1)
             rows.append({"sym": sym, "R": r, "status": durum, "move_pct": hareket,
                          "risk_pct": sig["risk_pct"], "t": h4[cikis]["close_time"],
                          "tip": sig["tip"], "rr": sig["rr"], "dir": sig["dir"], "mfe": mfe,

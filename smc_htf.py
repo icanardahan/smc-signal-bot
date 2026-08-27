@@ -34,6 +34,51 @@ BULLISH, BEARISH = 1, -1
 
 
 # ---------------- Temel ölçüler ----------------
+def ema(candles, length):
+    """Üstel hareketli ortalama. len(candles) < length ise None."""
+    if len(candles) < length:
+        return None
+    k = 2 / (length + 1)
+    vals = [c["close"] for c in candles]
+    e = sum(vals[:length]) / length     # ilk değer SMA ile başlatılır
+    for v in vals[length:]:
+        e = v * k + e * (1 - k)
+    return e
+
+
+def hacim_anomali(candles, idx, lookback=20, esik_carpani=2.0):
+    """`idx` barının hacmi, önceki `lookback` barın ortalamasının kaç
+    katı? Gerçek order-flow/whale verisi DEĞİL — Binance'in top-trader
+    long/short oranı yalnızca son ~30 güne gidiyor (ölçüldü), 2 yıllık
+    backtest'e hiç dahil edilemez. Bu, OHLCV hacminden türetilen bir
+    PROXY: anormal derecede yüksek hacimli bir mumu 'büyük oyuncu
+    katılımı' (balina) olarak yorumluyoruz, küçük/sıradan hacmi 'hamsi'
+    (perakende) olarak. Doğruluğu garanti edilemez, yalnızca ölçülebilir
+    bir hipotezdir."""
+    if idx <= 0 or idx >= len(candles):
+        return 0.0
+    bas = max(0, idx - lookback)
+    gecmis = [c["volume"] for c in candles[bas:idx] if c.get("volume")]
+    if not gecmis:
+        return 0.0
+    ort = sum(gecmis) / len(gecmis)
+    return (candles[idx].get("volume", 0) / ort) if ort else 0.0
+
+
+def fib_ote(pivot_seviye, kirilim_fiyat, entry, bias):
+    """Girişin, pivot->kırılım bacağının Fibonacci retracement bandında
+    olup olmadığını [0,1] ölçeğinde döndürür (0=pivot, 1=kırılım ucu).
+
+    ICT/SMC'nin 'OTE' (Optimal Trade Entry) kavramı: 0.618-0.786 bandı.
+    None dönerse bacak sıfır genişlikte (ölçülemez)."""
+    genislik = abs(kirilim_fiyat - pivot_seviye)
+    if genislik <= 0:
+        return None
+    if bias == BULLISH:
+        return (kirilim_fiyat - entry) / genislik
+    return (entry - kirilim_fiyat) / genislik
+
+
 def atr(candles, n=ATR_LEN):
     if len(candles) < 2:
         return 0.0
@@ -113,13 +158,13 @@ def structure(candles, length):
             tip = "CHoCH" if trend == BEARISH else "BOS"
             trend, ph_gecti = BULLISH, True
             ob = _order_block(p_hi, p_lo, ph_bar, i, BULLISH)
-            olaylar.append((i, BULLISH, tip) + ob)
+            olaylar.append((i, BULLISH, tip) + ob + (son_ph,))
 
         if son_pl is not None and not pl_gecti and cl[i] < son_pl:
             tip = "CHoCH" if trend == BULLISH else "BOS"
             trend, pl_gecti = BEARISH, True
             ob = _order_block(p_hi, p_lo, pl_bar, i, BEARISH)
-            olaylar.append((i, BEARISH, tip) + ob)
+            olaylar.append((i, BEARISH, tip) + ob + (son_pl,))
 
     return olaylar, trend
 
@@ -231,12 +276,20 @@ def bias_of(candles, length=SWING_LEN):
 # ---------------- Kurulum ve çıkış (backtest ve canlı bot ORTAK kullanır) ----------------
 def find_setup(h4, daily, weekly, *, setup_max_age=6, sl_atr_mult=0.25,
                min_rr=1.5, max_rr=6.0, liq_len=LIQ_LEN, discount_max=0.5,
-               require_choch=False, dir_filter=None):
+               require_choch=False, dir_filter=None,
+               use_fib=False, fib_min=0.618, fib_max=0.786,
+               use_trend=False, trend_len=200,
+               use_volume=False, volume_mult=2.0, volume_lookback=20):
     """Kurulum varsa sözlük, yoksa None. Son mum "şu an" kabul edilir.
 
     Bu fonksiyonu HEM smc_htf_backtest HEM smc_scanner çağırır. Kopyalanmamalı:
     canlı botun mantığı backtest'ten ayrışırsa test edilen şey çalışmıyor
-    demektir ve bunu fark etmek çok zor olur."""
+    demektir ve bunu fark etmek çok zor olur.
+
+    use_fib/use_trend/use_volume: varsayılan KAPALI — eklendiklerinde mevcut
+    (ölçülmüş, +0.240R) davranışı DEĞİŞTİRMEMESİ için. Her biri backtest'te
+    ayrı ayrı ve kombinasyon halinde ölçülüp raporlanacak; hiçbiri otomatik
+    olarak "en iyisi" seçilip canlıya alınmayacak."""
     if len(h4) < 120 or len(daily) < 60 or len(weekly) < 20:
         return None
 
@@ -256,11 +309,24 @@ def find_setup(h4, daily, weekly, *, setup_max_age=6, sl_atr_mult=0.25,
     if bias == BEARISH and konum < 1 - discount_max:
         return None
 
+    # 2b) TREND FİLTRESİ (opsiyonel). Günlük EMA(trend_len): fiyat, bias
+    # yönüyle uyumlu tarafta mı? Yapısal bias (1) zaten yön veriyordu; bu,
+    # KLASİK bir trend onayı EKLER (daha sıkı, daha az sinyal beklenir).
+    if use_trend:
+        e = ema(daily, trend_len)
+        if e is None:
+            return None
+        fiyat_simdi = daily[-1]["close"]
+        if bias == BULLISH and fiyat_simdi <= e:
+            return None
+        if bias == BEARISH and fiyat_simdi >= e:
+            return None
+
     # 3) 4H'de bias yönünde taze kırılım
     olaylar, _ = structure(h4, INTERNAL_LEN)
     son = None
     for ev in reversed(olaylar):
-        i, yon, tip, ob_top, ob_bot, ob_bar = ev
+        i, yon, tip, ob_top, ob_bot, ob_bar, pivot_sev = ev
         if len(h4) - 1 - i > setup_max_age:
             break
         # Not: pencerede ters yönde DAHA YENİ bir kırılım olması teorik olarak
@@ -274,10 +340,18 @@ def find_setup(h4, daily, weekly, *, setup_max_age=6, sl_atr_mult=0.25,
     if son is None:
         return None
 
-    i, yon, tip, ob_top, ob_bot, ob_bar = son
+    i, yon, tip, ob_top, ob_bot, ob_bar, pivot_sev = son
     yon_ad = "long" if yon == BULLISH else "short"
     if dir_filter and dir_filter != yon_ad:
         return None
+
+    # 3b) HACİM ANOMALİSİ (opsiyonel, "balina" proxy'si — bkz. hacim_anomali
+    # docstring'i). Order block barının hacmi son volume_lookback barın
+    # ortalamasının volume_mult katından azsa kurulum reddedilir.
+    if use_volume:
+        oran = hacim_anomali(h4, ob_bar, volume_lookback, volume_mult)
+        if oran < volume_mult:
+            return None
 
     fiyat = h4[-1]["close"]
     a = atr(h4, 14)
@@ -298,6 +372,16 @@ def find_setup(h4, daily, weekly, *, setup_max_age=6, sl_atr_mult=0.25,
     risk = abs(entry - sl)
     if risk <= 0:
         return None
+
+    # 4b) FİBONACCİ OTE (opsiyonel). Giriş, pivot->kırılım bacağının
+    # 0.618-0.786 retracement bandında mı? SMC'nin OTE kavramı; bacak
+    # genişse (kırılım pivotdan çok uzaktaysa) OB ortası bu banda hiç
+    # denk gelmeyebilir, o zaman kurulum reddedilir.
+    if use_fib:
+        kirilim_fiyat = h4[i]["close"]
+        oran = fib_ote(pivot_sev, kirilim_fiyat, entry, yon)
+        if oran is None or not (fib_min <= oran <= fib_max):
+            return None
 
     # 5) Hedef yalnızca R:R filtresi için — çıkış SÜRÜKLENEN STOP ile olur.
     #    Sabit TP'li çıkış ölçüldü ve daha kötü: +0.122R (t=1.71) karşı

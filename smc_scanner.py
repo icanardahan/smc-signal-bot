@@ -54,6 +54,18 @@ DISCOUNT_MAX = 0.5
 # avantajı yok. Otomatik işlem kapalı olduğu için sinyaller tavsiye
 # niteliğinde; short'ları alıp almamak kullanıcının kararı.
 DIR_FILTER = os.environ.get("SMC_DIR", "")     # "long" | "short" | "" (ikisi)
+
+# Trend (günlük EMA200) + hacim anomalisi filtreleri — kullanıcı isteğiyle
+# eklendi. ÖLÇÜM UYARISI: backtest'te n=37 (2 yıl, 40 sembol), t=3.09
+# görünüşte anlamlı ama kazancın %66'sı yalnızca 5 işlemden geliyordu
+# (SUI/DOGE/ADA/ZEC/ETH) — küçük örneklem, birkaç büyük kazançla şişmiş
+# olabilir. Bu filtre AÇIKKEN sinyal sayısı önceki haline göre ÇOK azalır
+# (backtest'te 449 -> 37, ~%92 azalma). Mevcut ileri test bu değişiklikle
+# KESİLMİŞ sayılır — önceki günlerin sonucu bu yeni kriterle ilgili değildir.
+USE_TREND = os.environ.get("SMC_USE_TREND", "1") == "1"
+USE_VOLUME = os.environ.get("SMC_USE_VOLUME", "1") == "1"
+TREND_LEN = int(os.environ.get("SMC_TREND_LEN") or "200")
+VOLUME_MULT = float(os.environ.get("SMC_VOLUME_MULT") or "2.0")
 TRAIL_LEN = 5
 FILL_TIMEOUT_BARS = 30      # 5 gün dolmazsa emir iptal
 HOLD_TIMEOUT_BARS = 60      # 10 gün sonra pozisyon kapatılır
@@ -364,19 +376,20 @@ def summary_message(taranan, degerlendirilen, kurulum, positions, fiyatlar,
             # TP'ler yalnızca referans (kapatma yapılmaz) — bkz. signal_message.
             tp_liste = [t for t in (p.get("tps") or []) if t is not None]
             tp_str = f"  TP: {' / '.join(_fmt(t) for t in tp_liste)}" if tp_liste else ""
+            onay = " 🔥onaylı" if p.get("onayli") else ""
             if p["status"] == "pending":
                 f = fiyatlar.get(s)
                 uzak = f"  (fiyat {_fmt(f)}, %{abs(f - p['entry']) / p['entry'] * 100:.1f} uzakta)" \
                     if f else ""
                 satir.append(f"⏳ <b>{s}</b> {yon} bekliyor @ {_fmt(p['entry'])}{uzak}"
-                             f"{tp_str}")
+                             f"{tp_str}{onay}")
             else:
                 f = fiyatlar.get(s)
                 kz = f"  <b>{pnl_pct(p, f):+.2f}%</b>" if f else ""
                 kilit = " 🔒" if p.get("trailed") else ""
                 kilit += " ⚠️yapı" if p.get("uyarildi") else ""
                 satir.append(f"▶️ <b>{s}</b> {yon} @ {_fmt(p['entry'])}{kz}\n"
-                             f"     stop {_fmt(p['stop'])}{kilit}{tp_str}")
+                             f"     stop {_fmt(p['stop'])}{kilit}{tp_str}{onay}")
     else:
         satir.append("\nAçık pozisyon yok.")
     return "\n".join(satir)
@@ -409,9 +422,19 @@ def signal_message(symbol, sig, bal):
         tp_satirlari.append(f"  TP{i}: {_fmt(tp)}  (R:R {rr:.2f})")
     tp_blok = "\n".join(tp_satirlari) if tp_satirlari else "  (hesaplanamadı)"
 
+    onay_satiri = ""
+    if sig.get("onayli"):
+        onay_satiri = (
+            "🔥 <b>Trend+Hacim onaylı</b> — bu kurulum EMA200 trendi ve hacim "
+            "anomalisi kriterlerinden de geçti.\n"
+            "⚠️ Bu ek etiket n=37 üzerinde ölçüldü, kazancın %66'sı yalnızca "
+            "5 işlemden geliyordu — güvenilirliği düşük, sadece bilgi.\n\n"
+        )
+
     return (
         f"{'🟢' if uzun else '🔴'} <b>{symbol} {sig['dir'].upper()}</b>  (SMC H/G/4S)\n"
         f"<i>{sig['tip']} — order block girişi</i>\n\n"
+        f"{onay_satiri}"
         f"Giriş (limit) : <b>{_fmt(sig['entry'])}</b>\n"
         f"Başlangıç stop: <b>{_fmt(sig['sl'])}</b>  (%{sig['risk_pct']:.2f})\n"
         f"Referans hedefler (kapatma yapılmaz):\n{tp_blok}\n\n"
@@ -726,12 +749,37 @@ def main():
             say["kisa"] += 1
             continue
         say["degerlendirilen"] += 1
+        # ESKİ STRATEJİ DEĞİŞMEDEN çalışmaya devam eder — filtresiz.
         sig = smc.find_setup(h4, d1, w1, setup_max_age=SETUP_MAX_AGE_BARS,
                              sl_atr_mult=SL_ATR_MULT, min_rr=MIN_RR,
                              max_rr=MAX_RR, liq_len=LIQ_LEN,
                              discount_max=DISCOUNT_MAX, dir_filter=DIR_FILTER)
         if not sig:
             continue
+
+        # EK ONAY ETİKETİ (strateji değişmiyor, yalnızca bilgi): aynı kurulum
+        # Trend(EMA200)+Hacim anomalisi kriterlerinden de geçiyor mu?
+        # Ölçüm: bu ikili filtre backtest'te n=37, t=3.09 görünüşte anlamlı
+        # AMA kazancın %66'sı yalnızca 5 işlemden geliyordu (küçük örneklem,
+        # aşırı güvenilmez) — bu yüzden STRATEJİYİ DEĞİŞTİRMEK yerine sadece
+        # "bu sinyal ayrıca bu ek kriterden de geçti" bilgisini ekliyoruz.
+        onayli = False
+        if USE_TREND or USE_VOLUME:
+            try:
+                sig_onay = smc.find_setup(
+                    h4, d1, w1, setup_max_age=SETUP_MAX_AGE_BARS,
+                    sl_atr_mult=SL_ATR_MULT, min_rr=MIN_RR, max_rr=MAX_RR,
+                    liq_len=LIQ_LEN, discount_max=DISCOUNT_MAX,
+                    dir_filter=DIR_FILTER, use_trend=USE_TREND,
+                    trend_len=TREND_LEN, use_volume=USE_VOLUME,
+                    volume_mult=VOLUME_MULT)
+                onayli = bool(sig_onay
+                             and sig_onay["dir"] == sig["dir"]
+                             and abs(sig_onay["entry"] - sig["entry"]) < 1e-9)
+            except Exception as e:
+                print(f"  [{symbol}] trend/hacim onay kontrolü başarısız: {e}")
+        sig["onayli"] = onayli
+
         # Aynı order block'a tekrar girme
         p = positions.get(symbol)
         if p and abs(p.get("entry", 0) - sig["entry"]) < 1e-12:
@@ -812,6 +860,7 @@ def main():
             "signal_time": bar_time, "last_bar": bar_time,
             "rr": sig["rr"], "risk_pct": sig["risk_pct"], "tip": sig["tip"],
             "hacim_sirasi": sira.get(symbol), "tps": sig["tps"],
+            "onayli": sig.get("onayli", False),
         }
         fiyatlar[symbol] = son_fiyat
         seriler[symbol] = seri
