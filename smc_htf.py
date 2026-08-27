@@ -362,12 +362,10 @@ def find_setup(h4, daily, weekly, *, setup_max_age=6, sl_atr_mult=0.25,
         sl = ob_bot - a * sl_atr_mult
         if fiyat <= entry:           # fiyat zaten OB'nin içinde/altında
             return None
-        uc = top
     else:
         sl = ob_top + a * sl_atr_mult
         if fiyat >= entry:
             return None
-        uc = bot
 
     risk = abs(entry - sl)
     if risk <= 0:

@@ -180,7 +180,28 @@ def load_state():
     return {"positions": {}}
 
 
+KAPALI_SAKLA = 200      # kapanmış pozisyon kaydı üst sınırı
+GECMIS_SAKLA = 500      # işlem geçmişi üst sınırı
+
+
+def _budam(state):
+    """State sınırsız büyümesin. Kapanmış pozisyonlar ve geçmiş kayıtları
+    sonsuza kadar birikiyordu; kapanmış kayıtlar yalnızca 'aynı order
+    block'a tekrar girme' kontrolü için gerekli, o da eskidikçe anlamsız."""
+    poz = state.get("positions", {})
+    kapali = [(p.get("last_bar") or 0, s) for s, p in poz.items()
+              if p.get("status") in CLOSED_STATES]
+    if len(kapali) > KAPALI_SAKLA:
+        kapali.sort()                       # en eskiler başta
+        for _, s in kapali[:len(kapali) - KAPALI_SAKLA]:
+            poz.pop(s, None)
+    g = state.get("gecmis", [])
+    if len(g) > GECMIS_SAKLA:
+        state["gecmis"] = g[-GECMIS_SAKLA:]
+
+
 def save_state(state):
+    _budam(state)
     with open(STATE_FILE, "w") as f:
         json.dump(state, f, indent=2, sort_keys=True)
 
@@ -539,11 +560,24 @@ def main():
     if not bal:
         bal = 100.0
 
+    # Borsadaki pozisyonlar tarama başında BİR KEZ çekilir ve hem mutabakatta
+    # hem izleme döngüsünde yeniden kullanılır (bkz. borsa_poz_guncel).
+    borsa_poz_guncel = {}
+    poz_okundu = False          # okuma BAŞARILI mı? boş sözlük ile karıştırma
+    if api:
+        try:
+            borsa_poz_guncel = api.positions()
+            poz_okundu = True
+        except Exception as e:
+            print(f"pozisyon anlık görüntüsü alınamadı: {e}")
+
     # Borsa ile state mutabakatı: bekleyen kaydın borsada karşılığı yoksa
     # (ne pozisyon ne emir) o kayıt gerçek değildir ve slot işgal eder.
-    if api and not kuru:
+    # poz_okundu şart: pozisyon listesi OKUNAMADIYSA boş sözlükle çalışmak
+    # tüm bekleyen kayıtları "hayalet" sanıp silmeye yol açardı.
+    if api and not kuru and poz_okundu:
         try:
-            borsa_poz = api.positions()   # dict: {symbol: {amt, entry, side}}
+            borsa_poz = borsa_poz_guncel
             borsa_emir = {o["symbol"] for o in api.open_orders()}
             hayalet = [s for s, p in positions.items()
                        if p["status"] == "pending"
@@ -572,10 +606,24 @@ def main():
                       f"ama borsada hâlâ AÇIK: {', '.join(unutulan)}")
                 for s in unutulan:
                     pb = borsa_poz[s]
+                    # Kapanış ERKEN kaydedilmişti ve gerçekleşmemiş; o kaydı
+                    # geçmişten SİL, yoksa işlem gerçekten kapandığında ikinci
+                    # kez yazılır. Ölçüldü: PAXGUSDT aynı sinyal zamanıyla iki
+                    # kez kaydedilmişti (stopped R=-1.0 VE trail_stop R=-2.94),
+                    # yani tek bir işlem iki kez zarar olarak sayılıyordu.
+                    sinyal_t = positions[s].get("signal_time")
+                    onceki = len(gecmis)
+                    gecmis[:] = [x for x in gecmis
+                                 if not (x.get("sym") == s
+                                         and x.get("t_sinyal") == sinyal_t)]
+                    if len(gecmis) < onceki:
+                        print(f"  [{s}] erken yazılmış {onceki - len(gecmis)} "
+                              f"geçmiş kaydı silindi (işlem kapanmamıştı)")
                     positions[s]["status"] = "open"
                     positions[s]["dir"] = pb["side"]
                     positions[s]["entry"] = pb["entry"]
                     positions[s].pop("kaydedildi", None)
+                    positions[s].pop("exit", None)
                 send_telegram(
                     f"🚨 <b>Unutulmuş pozisyon bulundu</b>\n"
                     f"{len(unutulan)} kayıt kapandı sanılıyordu, borsada hâlâ "
@@ -587,15 +635,34 @@ def main():
     fiyatlar = {}
     seriler = {}
 
+    # İzlenecek pozisyonların mum verisini PARALEL çek. Döngünün kendisi
+    # (state değiştiren, borsaya emir gönderen kısım) seri kalır — sıra
+    # önemli. Ama veri indirmeyi seri yapmak taramayı 5 dakikadan 15+
+    # dakikaya çıkarıyordu (76 pozisyon x 3 istek, her biri ~1-2 sn):
+    # ölçüldü, tek tur 14 dk 38 sn sürdü ve 5 dakikalık döngü anlamsızlaştı.
+    izlenecek = [s for s, p in positions.items() if p["status"] in LIVE_STATES]
+    veri_onbellek = {}
+    if izlenecek:
+        with ThreadPoolExecutor(max_workers=WORKERS) as ex:
+            isler = {ex.submit(fetch_symbol_data, s): s for s in izlenecek}
+            for fut in as_completed(isler):
+                sym, veri = fut.result()
+                if veri:
+                    veri_onbellek[sym] = veri
+
     # 1) Açık/bekleyen pozisyonları ilerlet
+    # (borsa_poz_guncel yukarıda bir kez çekildi; eskiden döngü içinde sembol
+    #  başına 3 kez api.positions() çağrılıyordu — 76 canlı pozisyonda ~230
+    #  gereksiz istek. Anlık tazelik şart değil: kaçan bir dolum 5 dk sonraki
+    #  taramada yakalanır ve tur sonunda "son güvenlik ağı" kontrolü var.)
     for symbol, pos in list(positions.items()):
         if pos["status"] not in LIVE_STATES:
             continue
-        try:
-            h4 = fetch_klines(symbol, "4h", H4_LIMIT)
-        except Exception as e:
-            print(f"[{symbol}] veri alınamadı: {e}")
+        veri = veri_onbellek.get(symbol)
+        if not veri:
+            print(f"[{symbol}] veri alınamadı, bu turda atlandı")
             continue
+        h4, d1_onb, w1_onb = veri
         if h4:
             fiyatlar[symbol] = h4[-1]["close"]
             seriler[symbol] = getiri_serisi(h4)
@@ -609,15 +676,12 @@ def main():
         # ensure_protection hiç çağrılmıyordu ve pozisyon borsada tamamen
         # açık, stopsuz kalıyordu (15 pozisyonda böyle yaşandı, ölçüldü).
         if api and pos["status"] == "pending":
-            try:
-                p_borsa = api.positions().get(symbol)
-                if p_borsa and p_borsa["amt"]:
-                    pos["status"] = "open"
-                    pos["fill_time"] = int(time.time() * 1000)
-                    pos["bars"] = 0
-                    olaylar.append(("filled", h4[-1] if h4 else {"close": pos["entry"]}))
-            except Exception as e:
-                print(f"  [{symbol}] borsa pozisyon kontrolü başarısız: {e}")
+            p_borsa = borsa_poz_guncel.get(symbol)
+            if p_borsa and p_borsa["amt"]:
+                pos["status"] = "open"
+                pos["fill_time"] = int(time.time() * 1000)
+                pos["bars"] = 0
+                olaylar.append(("filled", h4[-1] if h4 else {"close": pos["entry"]}))
 
         # Dayandığı YAPI hâlâ ayakta mı?
         #   bekleyen -> emri beklemenin anlamı yok, listeden düşer
@@ -626,8 +690,9 @@ def main():
         #               getirir; kapatma varyantı ayrıca ölçülüyor.
         if pos["status"] in LIVE_STATES and not pos.get("uyarildi"):
             try:
-                d1 = fetch_klines(symbol, "1d", D1_LIMIT)
-                w1 = fetch_klines(symbol, "1w", W1_LIMIT)
+                # Yukarıda paralel çekilen önbellekten al — burada tekrar
+                # indirmek döngüyü sembol başına 2 istek daha yavaşlatırdı.
+                d1, w1 = d1_onb, w1_onb
                 gecerli, sebep = setup_still_valid(pos, h4, d1, w1)
                 if not gecerli:
                     pos["sebep"] = sebep
@@ -647,10 +712,12 @@ def main():
         # Böyle bir olay borsayla doğrulanmadan geçerse hem yanlış bir
         # "kapandı" mesajı gider hem de kâğıt geçmişine sahte kayıt girer.
         if api and pos["status"] in CLOSED_STATES:
-            try:
-                hâlâ_acik = symbol in api.positions()
-            except Exception:
-                hâlâ_acik = False   # borsaya sorulamadıysa iyimser davranma
+            # Borsa okunamadıysa GÜVENLİ tarafta kal: pozisyonu hâlâ açık say
+            # ve izlemeye devam et. Eskiden burada False vardı, yani
+            # DOĞRULANAMAYAN bir kapanış kabul ediliyor ve olası açık bir
+            # pozisyon bir daha hiç izlenmiyordu — yorumu "iyimser davranma"
+            # diyordu ama kod tam tersini yapıyordu.
+            hâlâ_acik = (symbol in borsa_poz_guncel) if poz_okundu else True
             if hâlâ_acik:
                 print(f"  [{symbol}] {pos['status']} SİMÜLE EDİLDİ ama borsada "
                       f"hâlâ açık — olay İPTAL, izlemeye devam")
@@ -665,7 +732,7 @@ def main():
 
         if api and pos["status"] == "open":
             try:
-                p = api.positions().get(symbol)
+                p = borsa_poz_guncel.get(symbol)
                 if p and p["amt"]:
                     bt.ensure_protection(api, symbol, pos["dir"], p["amt"],
                                          pos["stop"], (None, None, None))
@@ -674,7 +741,20 @@ def main():
                     # ayrıştırıyordu: bot stopu yeni seviyede sanarken borsada
                     # eski seviye kalıyor ve aynı seviye için bir daha olay
                     # üretilmediği için fark hiç kapanmıyordu.
-                    bt.update_stop(api, symbol, pos["dir"], pos["stop"])
+                    konan = bt.update_stop(api, symbol, pos["dir"], pos["stop"])
+                    # Borsa hedef seviyeyi reddedip güvenlik tamponuyla başka
+                    # bir seviye koyduysa state'i GERÇEKTE konulana eşitle.
+                    # Yoksa state eski seviyede kalır ve her tur aynı
+                    # iptal+yeniden koyma döngüsü tekrarlar (ölçüldü:
+                    # PAXGUSDT tek günde 51 kez, her seferinde pozisyon kısa
+                    # süre korumasız kalarak).
+                    if isinstance(konan, (int, float)) and konan:
+                        ileri = ((konan > pos["stop"]) if pos["dir"] == "long"
+                                 else (konan < pos["stop"]))
+                        if abs(konan - pos["stop"]) > 1e-12 and not ileri:
+                            print(f"  [{symbol}] state stop {pos['stop']} → "
+                                  f"{konan} (borsanın kabul ettiği seviye)")
+                        pos["stop"] = konan
             except Exception as e:
                 # Bu hata eskiden yalnızca terminale yazılıyordu. Yaşandı:
                 # PAXGUSDT'de update_stop eski stopu iptal edip yeniyi

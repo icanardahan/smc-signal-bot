@@ -440,7 +440,12 @@ def update_stop(api, symbol, direction, new_stop):
                 api.place_stop(symbol, direction, guvenli)
                 print(f"  [{symbol}] hedef stop {new_stop} tetiklenirdi, "
                       f"güvenlik tamponuyla {guvenli} kondu")
-                return True
+                # GERÇEKTEN konulan seviyeyi döndür ki çağıran state'i
+                # güncelleyebilsin. Aksi halde state eski (tetiklenecek)
+                # seviyede kalır ve HER TURDA aynı iptal+yeniden koyma
+                # döngüsü yaşanır — ölçüldü: PAXGUSDT'de tek günde 51 kez,
+                # her seferinde pozisyon kısa süre korumasız kalarak.
+                return guvenli
             except Exception as e2:
                 print(f"  [{symbol}] GÜVENLİK TAMPONU DA BAŞARISIZ, "
                       f"POZİSYON KORUMASIZ: {e2}")
@@ -449,7 +454,7 @@ def update_stop(api, symbol, direction, new_stop):
               f"pozisyon ŞU AN KORUMASIZ OLABİLİR): {e}")
         raise RuntimeError(f"[{symbol}] KORUMASIZ: {e}") from None
     print(f"  [{symbol}] stop taşındı → {new_stop}")
-    return True
+    return new_stop
 
 
 def close_position(api, symbol, direction):

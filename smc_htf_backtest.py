@@ -38,7 +38,8 @@ DISCOUNT_MAX = 0.5         # long için fiyat aralığın alt yarısında olmal�
 # Hedef: aralığın ucu DEĞİL, bir sonraki likidite havuzu.
 # İlk testte aralık ucu hedeflendiğinde R:R medyanı 11.7 çıktı ve
 # isabet %2.3'e düştü — pozisyonlar hedefe varmadan zaman aşımına giriyordu.
-TP_MODE = os.environ.get("TP_MODE", "liq")     # liq | range
+# (Eski TP_MODE anahtarı kaldırıldı; find_setup her zaman likidite hedefi
+#  üretiyor ve zaten yalnızca R:R filtresi olarak kullanılıyor.)
 PAY = (0.5, 0.3, 0.2)      # TP1/TP2/TP3 kapatma oranları (canlı botla aynı)
 
 # Çıkış modeli. Ölçüm: long kazancının %83'ü 462 işlemin 5'inden geliyor.
