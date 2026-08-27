@@ -226,6 +226,32 @@ class BinanceFutures:
         return {"pnl": toplam_pnl, "komisyon": toplam_fee,
                 "net": toplam_pnl + toplam_fee, "islem_sayisi": len(pnl)}
 
+    def unrealized_pnl(self):
+        """Açık pozisyonların GERÇEK gerçekleşmemiş kâr/zararı (USDT).
+
+        Kâğıt tahmini değil, borsanın kendi hesabı: her pozisyonun
+        unRealizedProfit alanı toplanır."""
+        toplam = 0.0
+        for p in self._request("GET", "/fapi/v2/positionRisk", signed=True):
+            if float(p.get("positionAmt", 0)) != 0:
+                toplam += float(p.get("unRealizedProfit", 0) or 0)
+        return toplam
+
+    def symbol_realized_since(self, symbol, since_ms):
+        """Bir sembolün `since_ms`ten SONRAKİ gerçekleşmiş kâr/zararı.
+
+        Borsada kapanmış ama bot tarafından fark edilmemiş pozisyonların
+        GERÇEK sonucunu kaydedebilmek için kullanılır."""
+        try:
+            inc = self._request("GET", "/fapi/v1/income",
+                                {"symbol": symbol, "incomeType": "REALIZED_PNL",
+                                 "limit": 100}, signed=True)
+        except Exception:
+            return None
+        ilgili = [float(x["income"]) for x in inc
+                  if not since_ms or x.get("time", 0) >= since_ms]
+        return sum(ilgili) if ilgili else None
+
     def open_orders(self, symbol=None):
         params = {"symbol": symbol} if symbol else {}
         return self._request("GET", "/fapi/v1/openOrders", params, signed=True)

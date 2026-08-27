@@ -93,7 +93,8 @@ BAR_MS = 4 * 3600 * 1000
 STALE_MS = 3 * BAR_MS       # son 4H mum bundan eskiyse sembol atlanır
 
 LIVE_STATES = ("pending", "open")
-CLOSED_STATES = ("stopped", "trail_stop", "expired", "timeout", "invalidated")
+CLOSED_STATES = ("stopped", "trail_stop", "expired", "timeout", "invalidated",
+                 "borsada_kapandi")
 
 # Kâğıt üzerinde takip: her işlem 10 USDT marj, 10x kaldıraç -> 100 USDT nominal
 PAPER_MARGIN = 10.0
@@ -364,9 +365,17 @@ def summary_message(taranan, degerlendirilen, kurulum, positions, fiyatlar,
     if gercek_pnl:
         satir += ["",
                   f"💵 <b>Gerçek Binance sonucu</b> ({gercek_pnl['islem_sayisi']} işlem)",
-                  f"Kâr/zarar: {gercek_pnl['pnl']:+.2f}$  Komisyon: "
-                  f"{gercek_pnl['komisyon']:+.2f}$",
-                  f"Net: <b>{gercek_pnl['net']:+.2f}$</b>"]
+                  f"Kapanan işlemler: {gercek_pnl['pnl']:+.2f}$",
+                  f"Komisyon: {gercek_pnl['komisyon']:+.2f}$",
+                  f"Gerçekleşen net: <b>{gercek_pnl['net']:+.2f}$</b>"]
+        # Açık pozisyonların GERÇEK (borsanın kendi hesapladığı)
+        # gerçekleşmemiş kâr/zararı — kâğıt tahmini değil.
+        acik_gercek = gercek_pnl.get("acik")
+        if acik_gercek is not None:
+            satir.append(f"Açık pozisyonlar: {acik_gercek:+.2f}$")
+            satir.append(f"<b>TOPLAM: {gercek_pnl['net'] + acik_gercek:+.2f}$</b>")
+        if gercek_pnl.get("bakiye") is not None:
+            satir.append(f"Cüzdan: {gercek_pnl['bakiye']:.2f} USDT")
 
     satir += ["",
              f"📝 <b>Kâğıt üzerinde isabet göstergesi</b> "
@@ -629,6 +638,49 @@ def main():
                     f"{len(unutulan)} kayıt kapandı sanılıyordu, borsada hâlâ "
                     f"açık: {', '.join(unutulan)}\nYeniden izlemeye alındı, "
                     f"koruma kontrol ediliyor.")
+
+            # ÜÇÜNCÜ durum (eksikti): state "açık" diyor ama borsada pozisyon
+            # YOK — işlem borsada kapanmış (stop yemiş) ama bot fark etmemiş.
+            # monitor() kapanışı mum verisinden TAHMİN ediyor; borsa mark
+            # fiyatıyla tetiklediği için mum verisi bunu her zaman
+            # yakalayamıyor. Ölçüldü: state 29 "açık" derken borsada yalnızca
+            # 3 pozisyon vardı — 26 kayıt sonsuza kadar açık sanılıyor, her
+            # turda boşuna taranıyor ve kâr/zarar geçmişine hiç girmiyordu.
+            oksuz = [s for s, p in positions.items()
+                     if p["status"] == "open" and s not in borsa_poz]
+            if oksuz:
+                print(f"UYARI: {len(oksuz)} kayıt 'açık' sanılıyordu ama "
+                      f"borsada pozisyon YOK (kapanmış): {', '.join(oksuz)}")
+                for s in oksuz:
+                    p = positions[s]
+                    gercek = api.symbol_realized_since(s, p.get("fill_time"))
+                    p["status"] = "borsada_kapandi"
+                    p["gercek_pnl"] = gercek
+                    p["kaydedildi"] = True     # aşağıdaki kâğıt kaydı atlansın
+                    gecmis.append({
+                        "sym": s, "dir": p["dir"], "tip": p.get("tip"),
+                        "durum": "borsada_kapandi", "dolmus": True,
+                        "rr": p.get("rr"), "risk_pct": p.get("risk_pct") or 0,
+                        "hacim_sirasi": p.get("hacim_sirasi"),
+                        # Kâğıt R/hareket hesaplanamaz (çıkış fiyatı bilinmiyor);
+                        # GERÇEK dolar sonucu borsadan alındı.
+                        "move_pct": None, "R": None,
+                        "pnl": 0.0, "gercek_pnl": gercek,
+                        "t_sinyal": p.get("signal_time"), "t": p.get("last_bar"),
+                    })
+                    try:
+                        bt.cancel_everything(api, s)
+                    except Exception as e:
+                        print(f"  [{s}] artık emirler temizlenemedi: {e}")
+                toplam_g = sum(x for x in
+                               (positions[s].get("gercek_pnl") for s in oksuz)
+                               if x is not None)
+                send_telegram(
+                    f"🔄 <b>Borsada kapanmış {len(oksuz)} pozisyon bulundu</b>\n"
+                    f"Bot bunları hâlâ açık sanıyordu: {', '.join(oksuz[:12])}"
+                    f"{' …' if len(oksuz) > 12 else ''}\n"
+                    f"Gerçek toplam sonuç: <b>{toplam_g:+.2f}$</b>\n"
+                    f"Kayıtlar kapatıldı, artık boşuna taranmayacak.")
         except Exception as e:
             print(f"borsa mutabakatı yapılamadı: {e}")
 
@@ -987,6 +1039,17 @@ def main():
     if api and not kuru:
         try:
             gercek_pnl = api.realized_pnl()
+            # Açık pozisyonların gerçekleşmemiş kâr/zararı ve cüzdan bakiyesi
+            # de eklenir; böylece mesaj "şu ana kadar ne kazandım/kaybettim"
+            # sorusunu KÂĞIT tahminiyle değil borsanın kendi rakamıyla yanıtlar.
+            try:
+                gercek_pnl["acik"] = api.unrealized_pnl()
+            except Exception as e:
+                print(f"gerçekleşmemiş PnL okunamadı: {e}")
+            try:
+                gercek_pnl["bakiye"] = api.balance_usdt()
+            except Exception:
+                pass
         except Exception as e:
             print(f"gerçek PnL okunamadı: {e}")
 
