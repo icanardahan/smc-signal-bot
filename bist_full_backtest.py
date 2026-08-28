@@ -58,9 +58,14 @@ def sembol_test(sym):
         son_ob = anahtar
         r, durum, hareket, cikis, mfe = bt.simulate(sig, h1, k + 1)
         cikis = min(cikis, len(h1) - 1)
+        # ÇIKIŞ ZAMANI ŞART: portföy simülasyonu pozisyonun ne kadar açık
+        # kaldığını bilmeden eşzamanlılık sınırını uygulayamaz. Kaydedilmediği
+        # ilk denemede her pozisyon "anında kapandı" sayılıp 1889 kez üst üste
+        # bileşik getiri uygulandı ve +1865% gibi tamamen sahte bir sonuç çıktı.
         rows.append({"sym": sym, "R": r, "status": durum,
                      "risk_pct": sig["risk_pct"], "hacim": hacim,
-                     "t_in": h1[k]["close_time"], "fiyat": h1[k]["close"]})
+                     "t_in": h1[k]["close_time"], "t": h1[cikis]["close_time"],
+                     "fiyat": h1[k]["close"]})
     return rows, hacim
 
 
