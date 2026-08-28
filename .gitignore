@@ -5,3 +5,4 @@ __pycache__/
 .env
 logs/
 smc_state.json
+bist_state.json
