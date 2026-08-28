@@ -89,6 +89,10 @@ H4_LIMIT = 1000     # Binance azami; 500 barda bazı kurulumlar kaçıyordu
 D1_LIMIT = 300
 W1_LIMIT = 200
 
+# Tarama ~9 dk + 5 dk bekleme = ~14 dk normal döngü. 25 dk'yı aşan boşluk
+# gerçek bir kesintidir (Mac kapandı/uyudu, oturum kapandı, süreç öldü).
+KESINTI_UYARI_DK = 25
+
 BAR_MS = 4 * 3600 * 1000
 STALE_MS = 3 * BAR_MS       # son 4H mum bundan eskiyse sembol atlanır
 
@@ -561,6 +565,14 @@ def main():
     gecmis = state.setdefault("gecmis", [])   # kapanan işlemler (kâğıt üzerinde)
     kosu = state.setdefault("kosu", {})
     simdi_ts = int(time.time())
+
+    # KESİNTİ TESPİTİ. Bot durduğunda kimse haber vermiyordu; kullanıcı
+    # 1.5 saatlik bir kesintiyi kendisi fark etti. Yaşanan: Mac 03:19'da
+    # yeniden başladı ama LaunchAgent yalnızca kullanıcı OTURUM AÇINCA
+    # çalışır — 04:41'de giriş yapılana kadar bot ölüydü. O sırada bir
+    # limit emir doldu ve pozisyon stopsuz kaldı (STXUSDT).
+    onceki_kosu = kosu.get("son")
+    bosluk_dk = ((simdi_ts - onceki_kosu) / 60) if onceki_kosu else 0
     kosu["sayi"] = kosu.get("sayi", 0) + 1
     kosu.setdefault("ilk", simdi_ts)
     kosu["son"] = simdi_ts
@@ -568,6 +580,19 @@ def main():
     kuru = bool(api and api.dry)
     if not bal:
         bal = 100.0
+
+    # Uzun bir kesintiden sonra HABER VER. Kesinti sırasında bekleyen emirler
+    # dolabilir ve stop konulamadığı için pozisyon korumasız kalabilir —
+    # yaşandı: 82 dakikalık kesintide STXUSDT doldu ve stopsuz kaldı.
+    if bosluk_dk > KESINTI_UYARI_DK:
+        print(f"UYARI: bot {bosluk_dk:.0f} dakika çalışmamış.")
+        send_telegram(
+            f"⏸ <b>Bot {bosluk_dk:.0f} dakika çalışmadı</b>\n"
+            f"Son tarama: {datetime.fromtimestamp(onceki_kosu).strftime('%d.%m %H:%M')}\n\n"
+            f"Bu sürede dolan emirlerin stopu konulmamış olabilir; bu tarama "
+            f"kontrol edip eksikleri tamamlayacak.\n"
+            f"<i>Sık sebep: Mac yeniden başladı ve oturum açılana kadar "
+            f"LaunchAgent çalışmaz.</i>")
 
     # Borsadaki pozisyonlar tarama başında BİR KEZ çekilir ve hem mutabakatta
     # hem izleme döngüsünde yeniden kullanılır (bkz. borsa_poz_guncel).
