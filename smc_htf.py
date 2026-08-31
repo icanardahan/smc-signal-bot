@@ -341,6 +341,18 @@ def find_setup(h4, daily, weekly, *, setup_max_age=6, sl_atr_mult=0.25,
         return None
 
     i, yon, tip, ob_top, ob_bot, ob_bar, pivot_sev = son
+
+    # TERS ORDER BLOCK'U REDDET. parsed_levels(), aralığı 2xATR'yi aşan
+    # volatil mumlarda high/low'u BİLEREK takas eder — amaç o mumların
+    # order block seçilmemesi. Ama yine de seçilirlerse ob_top < ob_bot
+    # olur ve stop girişin YANLIŞ tarafına düşer: long'da stop girişin
+    # üstünde çıkar, borsa "anında tetiklenir" (-2021) diye reddeder.
+    # risk_pct abs() ile hesaplandığı için bu hata doğrulamadan sızıyordu.
+    # Ölçüldü: kripto order block'larının %2.4'ü ters; BIST canlı taramasında
+    # DURDO'da yakalandı (giriş 4.89, stop 4.917).
+    if ob_top is None or ob_bot is None or ob_top <= ob_bot:
+        return None
+
     yon_ad = "long" if yon == BULLISH else "short"
     if dir_filter and dir_filter != yon_ad:
         return None

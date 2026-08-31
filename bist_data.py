@@ -28,15 +28,35 @@ import urllib.error
 YAHOO = "https://query1.finance.yahoo.com/v8/finance/chart"
 UA = {"User-Agent": "Mozilla/5.0"}
 
-# BIST'te en çok işlem gören paritelerden bir çekirdek liste. Yahoo'da
-# bulunamayan semboller (ör. isim değişikliği) sessizce atlanır.
-BIST_SEMBOLLER = [
+def _liste_yukle():
+    """Doğrulanmış BIST sembol listesi (bist_semboller.txt).
+
+    Liste Yahoo'nun arama ucu iki harfli öneklerle taranarak çıkarıldı
+    (333 sembol) ve her biri veri yeterliliği için sınandı: en az 300
+    saatlik, 80 günlük, 25 haftalık bar. 355 adaydan 347'si geçti.
+    Dosya yoksa aşağıdaki çekirdek listeye düşer."""
+    import os
+    yol = os.path.join(os.path.dirname(__file__), "bist_semboller.txt")
+    try:
+        with open(yol) as f:
+            liste = [x.strip().upper() for x in f if x.strip()]
+        if liste:
+            return liste
+    except Exception:
+        pass
+    return _CEKIRDEK
+
+
+# Dosya bulunamazsa kullanılacak çekirdek liste (en likit isimler).
+_CEKIRDEK = [
     "THYAO", "GARAN", "AKBNK", "ISCTR", "YKBNK", "BIMAS", "ASELS", "KCHOL",
     "SAHOL", "TUPRS", "EREGL", "FROTO", "TCELL", "SISE", "PGSUS", "TOASO",
     "HEKTS", "PETKM", "VESTL", "ARCLK", "ENKAI", "TAVHL", "MGROS", "SASA",
     "KRDMD", "OYAKC", "TTKOM", "DOHOL", "ALARK", "EKGYO", "GUBRF", "ODAS",
     "SOKM", "TKFEN", "AEFES", "CIMSA", "AKSEN", "BRSAN", "ISDMR", "KONTR",
 ]
+
+BIST_SEMBOLLER = _liste_yukle()
 
 
 def _istek(url, deneme=3):

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.icanardahan.bistbot</string>
+  <!-- BIST tarayıcısı. Seans kontrolü betiğin içinde: kapalıyken hiçbir şey
+       yapmadan çıkıyor, o yüzden döngü 7/24 dönebilir. 15 dakikalık aralık
+       1 saatlik barlar için fazlasıyla yeterli. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/icanardahan/smc-signal-bot/run_bist.sh</string>
+    <string>--loop</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>60</integer>
+  <key>StandardOutPath</key><string>/Users/icanardahan/smc-signal-bot/logs/bist-launchd.out</string>
+  <key>StandardErrorPath</key><string>/Users/icanardahan/smc-signal-bot/logs/bist-launchd.err</string>
+</dict>
+</plist>
